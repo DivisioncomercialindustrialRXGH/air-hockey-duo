@@ -1,17 +1,27 @@
 {
   "name": "air-hockey-duo-cloudflare",
-  "version": "5.0.1",
+  "version": "5.0.4-rc.2",
   "private": true,
   "description": "Air Hockey DUO multijugador, gratis en Cloudflare Workers y Durable Objects",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test test/*.test.js",
-    "check": "node --check src/worker.js && node --check src/physics.js && node --check src/tournament.js && node --check public/game.js && npm test"
+    "test": "node --test test/*.test.js test/historical/*.test.js scripts/rc2-network-gates.mjs",
+    "check": "node --check src/worker.js && node --check src/physics.js && node --check src/geometry.js && node --check src/input.js && node --check src/tournament.js && node --check public/game.js && node --check public/motion.js && npm test",
+    "test:baseline": "node scripts/baseline.mjs",
+    "test:network": "node --test test/network-latency-v504.test.js scripts/rc2-network-gates.mjs",
+    "audit:metrics": "node scripts/rc2-metrics.mjs",
+    "test:runtime": "node scripts/runtime-smoke.mjs",
+    "test:legacy-network": "node --test test/historical/network-latency-v503.test.js",
+    "audit:stress": "node scripts/rc2-stress.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "audit:holdout": "node scripts/rc2-metrics.mjs --holdout"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "4.161.0"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=22"
+  }
 }

@@ -1,3 +1,4 @@
+import {projectMallet} from './geometry.js';
 /** Shared deterministic physics for the Cloudflare room authority. */
 export const W = 500, H = 900;
 export const PADDLE_R = 37, PUCK_R = 16, GOAL_HALF = 94;
@@ -36,17 +37,22 @@ export function sanitizeSettings(value = {}) {
   };
 }
 export function puckRadius(room) {
+  if(room.geometry)return room.geometry.puck;
   return RADII[room.settings?.puckSize || 'M'] * (room.effect?.type === 'giantPuck' ? 1.65 : 1);
 }
 export function paddleRadius(room, i) {
+  if(room.geometry)return room.geometry.pads[i]??PADDLE_R;
   const fx=room.effect;
   if(fx?.type==='giantPaddle' && fx.owner===i)return PADDLE_R*1.42;
   const n=teamSize(room);
   if(fx?.type==='miniRival' && (i<n)!==(fx.owner<n))return PADDLE_R*.67;
   return PADDLE_R;
 }
-function markEvent(room, type, x, y, detail = '') {
-  room.lastEvent = { id: (room.lastEvent?.id || 0) + 1, type, x, y, detail };
+function markEvent(room, type, x, y, detail = '', extra) {
+  room.lastEvent = { id: (room.lastEvent?.id || 0) + 1, type, x, y, detail, ...extra };
+  // Lag compensation may only rewind across deterministic wall/post bounces.
+  if(type!=='wall')lagState(room).nonWall++;
+  room.eventLog?.push(room.lastEvent); // test hook (undefined in production)
 }
 function startingPaddles(mode) {
   const n = mode === 'teams' ? 8 : mode === 'duo' ? 4 : 2;
@@ -73,7 +79,7 @@ export function makeRoom(code, settings = {}) {
 }
 export function resetPaddles(room) {
   const replacements = startingPaddles(room.settings.mode);
-  room.paddles=replacements;
+  room.paddles=replacements;delete room.geometry;
 }
 export function boundsForPaddle(room, i) {
   const nTeam=teamSize(room);
@@ -90,11 +96,18 @@ export function serve(room, toward = Math.random() < .5 ? 0 : 1) {
   const angle = (Math.random()-.5)*.68;
   const sign = toward === 0 ? 1 : -1;
   room.puck = { x: W/2, y: H/2, vx: Math.sin(angle)*460, vy: sign*Math.cos(angle)*460 };
+  // A new serve starts a new timeline: lag compensation may never rewind into
+  // the previous rally (pause/reconnect, countdown, manual recenter).
+  room.paddles.forEach(p=>{p.prevX=p.x;p.prevY=p.y;p.contactLocked=false;p.contactNX=0;p.contactNY=0;});
+  // Recentring can place the disc beside a mallet on the centre-line limit.
+  // Publish a valid starting geometry rather than an overlapping reset frame.
+  separateRestingContacts(room,padMotion(room,1/60),1/60);
+  const lag = lagState(room); lag.history.length = 0; lag.lag=[]; lag.inputs=[]; lag.nonWall++;
 }
 export function countdown(room, toward) {
   room.phase='countdown'; room.phaseEnd=Date.now()+2200;
   room.goalBy=null; room.winner=null; room.pauseMessage='';
-  room.power=null; room.effect=null; room.nextPowerAt=Date.now()+6500;
+  room.power=null; room.effect=null;delete room.geometry; room.nextPowerAt=Date.now()+6500;
   resetPaddles(room); serve(room,toward);
   if(room.bot){room.bot.thinkAt=0;room.bot.recoverUntil=0;room.bot.seenHit=room.lastEvent?.id||0;}
 }
@@ -165,18 +178,13 @@ export function updateBot(room,now=Date.now()) {
     brain.recoverUntil=now+cfg.recover;
     brain.thinkAt=0;
   }
-  // A disc behind the bot (between its paddle and the goal) overrides retreat.
-  // Rescue from the back line without changing speed, acceleration or difficulty.
+  // Emergency defense if the disc is behind the bot's paddle.
   const behind=puck.y<bot.y-puckRadius(room)*.55 && puck.y<245;
   if(behind){
     const pr=puckRadius(room);
-    const desiredX=clamp(puck.x+puck.vx*.035,b.minX,b.maxX);
-    const desiredY=clamp(puck.y-pr-paddleRadius(room,1)*.8,b.minY+10,b.maxY-10);
-    bot.tx=brain.aimX=desiredX;
-    bot.ty=brain.aimY=desiredY;
-    brain.thinkAt=now+cfg.delay;
-    brain.recoverUntil=0;
-    return;
+    bot.tx=brain.aimX=clamp(puck.x+puck.vx*.035,b.minX,b.maxX);
+    bot.ty=brain.aimY=clamp(puck.y-pr-paddleRadius(room,1)*.8,b.minY+10,b.maxY-10);
+    brain.thinkAt=now+cfg.delay;brain.recoverUntil=0;return;
   }
   if(now<(brain.recoverUntil||0)){
     bot.tx=brain.aimX=clamp(bot.x,b.minX,b.maxX);
@@ -194,7 +202,8 @@ export function updateBot(room,now=Date.now()) {
   };
   const approaching=puck.vy< -60;
   const inZone=puck.y>75&&puck.y<H/2+35;
-  // Predict where the puck reaches the bot's contact line, including a wall bounce.
+  // The contact line moves with the bot, but never ahead of the legal rink.
+  // Predict where the puck WILL arrive, including one side-wall rebound.
   const contactLine=clamp(bot.y+pr+paddleRadius(room,1)+12,195,300);
   const interceptSeconds=approaching?clamp((puck.y-contactLine)/Math.max(90,-puck.vy),0,.72):0;
   // Difficulty error remains STABLE for several moments. Re-randomizing it
@@ -206,7 +215,8 @@ export function updateBot(room,now=Date.now()) {
   if(approaching&&inZone){
     const aim=projectedX(interceptSeconds);
     if(puck.y<345){
-      // Intercept and strike from above without increasing physical speed.
+      // Challenge the approaching puck from the far side and strike downward.
+      // Higher difficulties predict better, but are not given extra speed.
       x=aim+error*(cfg.speed<500?.36:.2);
       y=puck.y-(pr+paddleRadius(room,1))*.78;
     }else{x=aim+error;y=185;}
@@ -231,6 +241,9 @@ const PADDLE_RESTITUTION = 0.87;
 const POST_R = 8;
 const COLLISION_EPS = 0.12;
 const MAX_COLLISIONS = 18;
+// Minimum closing speed for a mallet that is still "locked" after a hit to
+// count as a new strike (px/s). Below this it is resting contact / carrying.
+const REHIT_CLOSING_SPEED = 90;
 const SPEED_EPS = 1e-8;
 function limitSpeed(puck, min=0, max=MAX_PUCK_SPEED) {
   const speed=Math.hypot(puck.vx,puck.vy);
@@ -277,6 +290,26 @@ function padMotion(room,dt) {
   }));
 }
 function padAt(m,seconds) {return {x:m.x0+m.vx*seconds,y:m.y0+m.vy*seconds};}
+// A 3600 px/s mallet cannot keep moving through a puck capped at 1600 px/s.
+// Limit its remaining normal travel, not the puck's position. The input target
+// remains intact; on the next tick it can continue once contact has cleared.
+function constrainMallet(room,puck,m,elapsed,dt){
+  const at=padAt(m,elapsed),dx=puck.x-at.x,dy=puck.y-at.y;
+  if(Math.hypot(dx,dy)>puckRadius(room)+m.radius+COLLISION_EPS*3)return;
+  const n=normalFrom(dx,dy,m.pad.contactNX,m.pad.contactNY);
+  const closing=(m.vx-puck.vx)*n.x+(m.vy-puck.vy)*n.y;
+  if(closing<=0)return;
+  m.vx-=closing*n.x;m.vy-=closing*n.y;
+  m.x0=at.x-m.vx*elapsed;m.y0=at.y-m.vy*elapsed;
+  const b=boundsForPaddle(room,m.index);
+  m.pad.x=clamp(at.x+m.vx*(dt-elapsed),b.minX,b.maxX);
+  m.pad.y=clamp(at.y+m.vy*(dt-elapsed),b.minY,b.maxY);
+  // Keep the sweep endpoint consistent if a boundary clipped the constraint.
+  if(dt>elapsed){m.vx=(m.pad.x-at.x)/(dt-elapsed);m.vy=(m.pad.y-at.y)/(dt-elapsed);}
+  m.x0=at.x-m.vx*elapsed;m.y0=at.y-m.vy*elapsed;
+  m.pad.vx=(m.pad.x-m.pad.prevX)/dt;m.pad.vy=(m.pad.y-m.pad.prevY)/dt;
+  if(room.settings.mode==='bot'&&m.index===1){m.pad.motorVX=m.vx;m.pad.motorVY=m.vy;}
+}
 function resolvePaddle(room,puck,m,at) {
   const where=padAt(m,at);
   const safeNormal=normalFrom(puck.x-where.x,puck.y-where.y,
@@ -302,14 +335,15 @@ function resolvePaddle(room,puck,m,at) {
     const outward=puck.vx*nx+puck.vy*ny;
     if(outward<160){puck.vx+=(160-outward)*nx;puck.vy+=(160-outward)*ny;}
     if(room.effect?.type==='turbo'){puck.vx*=1.16;puck.vy*=1.16;}
-    // A charged shot requires a real strike by the owning team.
+    // Charged shot: only an actual hit by the owner/team fires the cannon.
+    // The disc never teleports; speed stays below the common speed ceiling.
     const effect=room.effect;
     const n=teamSize(room);
     if(effect?.type==='powerShot' && (effect.owner<n)===(m.index<n)){
       const towardRival=m.index<n?-1:1;
       puck.vx=clamp(puck.vx*.52,-660,660);
       puck.vy=towardRival*Math.sqrt(Math.max(0,1380**2-puck.vx**2));
-      room.effect=null;room.nextPowerAt=Date.now()+3000;
+      room.effect=null;room.nextPowerAt=(room.simTime??Date.now())+3000;
       markEvent(room,'cannon',puck.x,puck.y,String(m.index));
     }
     limitSpeed(puck,0,room.effect?.type==='slowPuck'?720:MAX_PUCK_SPEED);
@@ -322,47 +356,50 @@ function resolvePaddle(room,puck,m,at) {
 function separateRestingContacts(room,motions,dt=1/60) {
   const puck=room.puck,pr=puckRadius(room);
   for(const m of motions){
-    const r=pr+m.radius,dx=puck.x-m.pad.x,dy=puck.y-m.pad.y;
-    const len=Math.hypot(dx,dy);
-    if(len>r+6){m.pad.contactLocked=false;m.pad.edgeReleaseSign=0;continue;}
-    if(len<r+COLLISION_EPS){
-      // When the mallet traps the puck against a side wall, pushing the puck
-      // outward gets immediately undone by the rink boundary. Ease it along
-      // the wall in bounded steps instead of leaving it pinned or teleporting.
-      const sidePinned=(puck.x>=W-pr-.9 && dx>0) || (puck.x<=pr+.9 && dx<0);
-      if(sidePinned){
-        const minY=pr+COLLISION_EPS,maxY=H-pr-COLLISION_EPS;
-        let direction=m.pad.edgeReleaseSign ||
-          (Math.abs(dy)>2?Math.sign(dy):Math.abs(puck.vy)>8?Math.sign(puck.vy):m.pad.y<H/2?1:-1);
-        const escapeY=Math.sqrt(Math.max(0,(r+2)**2-dx*dx))+6;
-        if(m.pad.y+direction*escapeY<minY||m.pad.y+direction*escapeY>maxY)direction=-direction;
-        m.pad.edgeReleaseSign=direction;
-        const targetY=clamp(m.pad.y+direction*escapeY,minY,maxY);
-        const maxStep=Math.min(12,650*dt);
-        puck.y=clamp(puck.y+clamp(targetY-puck.y,-maxStep,maxStep),minY,maxY);
-        puck.vy=direction*Math.max(Math.abs(puck.vy),280);
-        puck.vx=0;
-        m.pad.contactLocked=true;
-        m.pad.contactNX=0;m.pad.contactNY=direction;
-        continue;
-      }
-      // Preserve the original side of a sustained paddle contact. Using the
-      // instantaneous center-to-center normal after a fast crossover can
-      // teleport the puck to the opposite side.
-      const priorX=m.pad.contactNX,priorY=m.pad.contactNY;
-      const n=m.pad.contactLocked && Number.isFinite(priorX) && Number.isFinite(priorY) &&
-        Math.hypot(priorX,priorY)>.5
-        ? {x:priorX,y:priorY}
-        : normalFrom(dx,dy,priorX||0,priorY||0);
-      puck.x=m.pad.x+n.x*(r+COLLISION_EPS);
-      puck.y=m.pad.y+n.y*(r+COLLISION_EPS);
-      // De-penetration must NEVER inject new energy each tick. A sustained
-      // overlapping mallet was accelerating the disc to the speed cap.
-      const inwards=puck.vx*n.x+puck.vy*n.y;
-      if(inwards<0){puck.vx-=inwards*n.x;puck.vy-=inwards*n.y;}
-      m.pad.contactLocked=true;
-      m.pad.contactNX=n.x;m.pad.contactNY=n.y;
+    const p=m.pad,R=pr+m.radius;
+    const depth=R-Math.hypot(puck.x-p.x,puck.y-p.y);
+    if(depth< -6)p.contactLocked=false;
+    if(depth<=0&&Math.hypot(p.x-(p.prevX??p.x),p.y-(p.prevY??p.y))<=MAX_PADDLE_SPEED*dt+1e-7)continue;
+    const origin={x:p.prevX??p.x,y:p.prevY??p.y};
+    const n=depth>0&&p.contactLocked&&Math.hypot(p.contactNX||0,p.contactNY||0)>.5?{x:p.contactNX,y:p.contactNY}:null;
+    const corrected=projectMallet(p,puck,R+1.25,boundsForPaddle(room,m.index),origin,MAX_PADDLE_SPEED*dt,n);
+    if(corrected){
+      p.x=corrected.x;p.y=corrected.y;
+      p.vx=(p.x-origin.x)/dt;p.vy=(p.y-origin.y)/dt;
+      p.contactLocked=true;
+      const normal=normalFrom(puck.x-p.x,puck.y-p.y);p.contactNX=normal.x;p.contactNY=normal.y;
     }
+  }
+}
+
+// Growth is geometric, not a position correction. Shrink immediately; grow at
+// 120 px/s only while there is clearance. This also covers miniRival expiry.
+function initializeGeometry(room){
+  if(!room.geometry)room.geometry={puck:puckRadius(room),pads:room.paddles.map((_,i)=>paddleRadius(room,i))};
+}
+function updateGeometry(room,dt){
+  if(!room.geometry)return;
+  const geometry=room.geometry;delete room.geometry;
+  const desiredPuck=puckRadius(room),desiredPads=room.paddles.map((_,i)=>paddleRadius(room,i));room.geometry=geometry;
+  const p=room.puck;
+  let clearance=Math.min(p.x,W-p.x);
+  const mouth=Math.abs(p.x-W/2)<GOAL_HALF-desiredPuck-3;
+  if(!mouth)clearance=Math.min(clearance,p.y,H-p.y);
+  for(const x of [W/2-GOAL_HALF,W/2+GOAL_HALF])for(const y of [0,H])clearance=Math.min(clearance,Math.hypot(p.x-x,p.y-y)-POST_R);
+  for(let i=0;i<room.paddles.length;i++){
+    const pad=room.paddles[i];
+    clearance=Math.min(clearance,Math.hypot(p.x-pad.x,p.y-pad.y)-geometry.pads[i],
+      Math.hypot(p.x-(pad.prevX??pad.x),p.y-(pad.prevY??pad.y))-geometry.pads[i]);
+  }
+  geometry.puck=Math.min(desiredPuck,Math.max(geometry.puck,Math.min(geometry.puck+120*dt,clearance-.001)));
+  const n=teamSize(room);
+  for(let i=0;i<room.paddles.length;i++){
+    const pad=room.paddles[i],left=n>1?(i%n)*W/n:0,right=left+W/n;
+    const side=n>1?i<n?0:1:i;
+    const space=(x,y)=>Math.min(x-left-2,right-x-2,side===0?y-H/2-5:H/2-y-5,
+      side===0?H-y-19:y-19,Math.hypot(p.x-x,p.y-y)-geometry.puck-.001);
+    const available=Math.min(space(pad.x,pad.y),space(pad.prevX??pad.x,pad.prevY??pad.y));
+    geometry.pads[i]=Math.min(desiredPads[i],Math.max(geometry.pads[i],Math.min(geometry.pads[i]+120*dt,available)));
   }
 }
 /**
@@ -371,8 +408,9 @@ function separateRestingContacts(room,motions,dt=1/60) {
  * travels only the remaining part of the frame after each rebound.
  * This avoids both tunneling and double-integration after a paddle strike.
  */
-export function stepPuck(room,dt) {
+export function stepPuck(room,dt,{growRadii=true}={}) {
   if(!Number.isFinite(dt)||dt<=0)return null;
+  if(growRadii)updateGeometry(room,dt);
   const puck=room.puck,r=puckRadius(room);
   const motions=padMotion(room,dt);
   const mouthLeft=W/2-GOAL_HALF+r+3;
@@ -383,8 +421,6 @@ export function stepPuck(room,dt) {
   if(![puck.x,puck.y,puck.vx,puck.vy].every(Number.isFinite)){
     Object.assign(puck,{x:W/2,y:H/2,vx:0,vy:0});
   }
-  // An earlier positional correction must never turn into a free goal.
-  // The only valid goal is a swept crossing inside the collision loop.
   if(puck.y<-r*.85){puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);}
   if(puck.y>H+r*.85){puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);}
   if(puck.x<r){puck.x=r;puck.vx=Math.abs(puck.vx);}
@@ -403,11 +439,22 @@ export function stepPuck(room,dt) {
       if(t<best.t-1e-8)best={t:Math.max(0,t),kind,...extra};
     };
     for(const m of motions){
-      if(m.pad.contactLocked)continue;
       const at=padAt(m,elapsed);
-      const t=sweepCircle(puck.x-at.x,puck.y-at.y,puck.vx-m.vx,puck.vy-m.vy,
-        r+m.radius,remaining);
-      propose(t,'paddle',{m});
+      const rx=puck.x-at.x,ry=puck.y-at.y,rvx=puck.vx-m.vx,rvy=puck.vy-m.vy;
+      let quiet=false;
+      if(m.pad.contactLocked){
+        // 5.0.3: the lock exists to stop repeated impulses while the disc is
+        // RESTING against a mallet. It used to skip the mallet entirely, so a
+        // second swing that started within 6 px of the disc passed straight
+        // through it with no hit. A locked mallet may strike again (once per
+        // tick) when it is really separated and closing in fast enough.
+        const gap=Math.hypot(rx,ry)-(r+m.radius);
+        const closing=-(rx*rvx+ry*rvy)/Math.max(1e-6,Math.hypot(rx,ry));
+        if(gap<-.5)continue; // old/corrupt overlap uses bounded recovery below
+        quiet=m.struckThisStep||closing<REHIT_CLOSING_SPEED;
+      }
+      const t=sweepCircle(rx,ry,rvx,rvy,r+m.radius,remaining);
+      propose(t,'paddle',{m,quiet});
     }
     // The posts are circles, rather than rectangles: TOI also prevents
     // high-speed discs sneaking through the goal posts.
@@ -417,6 +464,14 @@ export function stepPuck(room,dt) {
     }
     if(puck.vx < -SPEED_EPS)propose((r-puck.x)/puck.vx,'wall',{nx:1,ny:0});
     if(puck.vx > SPEED_EPS)propose((W-r-puck.x)/puck.vx,'wall',{nx:-1,ny:0});
+    // Behind the end line, the goal has side walls. Without their TOI a diagonal
+    // shot could enter the mouth, leave it sideways before the scoring plane,
+    // then be clamped an entire radius back into the rink (a visible teleport).
+    if(Math.abs(puck.vx)>SPEED_EPS){
+      const edge=puck.vx<0?mouthLeft:mouthRight,t=(edge-puck.x)/puck.vx;
+      const y=puck.y+puck.vy*t;
+      if(t>=0&&(y<=0||y>=H))propose(t,'wall',{nx:puck.vx<0?1:-1,ny:0});
+    }
     if(puck.vy < -SPEED_EPS){
       const wallT=(r-puck.y)/puck.vy;
       if(wallT>=0 && !mouth(puck.x+puck.vx*wallT))propose(wallT,'wall',{nx:0,ny:1});
@@ -436,7 +491,16 @@ export function stepPuck(room,dt) {
     puck.x+=puck.vx*best.t;puck.y+=puck.vy*best.t;
     elapsed+=best.t;remaining=Math.max(0,remaining-best.t);
     if(best.kind==='goal')return best.side;
-    if(best.kind==='paddle')resolvePaddle(room,puck,best.m,elapsed);
+    if(best.kind==='paddle'){
+      if(best.quiet){
+        // The lock suppresses extra impact energy, never collision geometry.
+        const at=padAt(best.m,elapsed),n=normalFrom(puck.x-at.x,puck.y-at.y);
+        puck.x=at.x+n.x*(r+best.m.radius+COLLISION_EPS);
+        puck.y=at.y+n.y*(r+best.m.radius+COLLISION_EPS);
+        const inward=puck.vx*n.x+puck.vy*n.y;
+        if(inward<0){puck.vx-=inward*n.x;puck.vy-=inward*n.y;}
+      }else{resolvePaddle(room,puck,best.m,elapsed);best.m.struckThisStep=true;}
+    }
     else if(best.kind==='post'){
       const n=normalFrom(puck.x-best.postX,puck.y-best.postY,
         best.postX<W/2?1:-1,best.postY===0?1:-1);
@@ -447,33 +511,26 @@ export function stepPuck(room,dt) {
       puck.x+=best.nx*COLLISION_EPS;puck.y+=best.ny*COLLISION_EPS;
       if(reflect(puck,best.nx,best.ny,WALL_RESTITUTION))markEvent(room,'wall',puck.x,puck.y);
     }
+    for(const m of motions)constrainMallet(room,puck,m,elapsed,dt);
     processed++;
   }
   // Overcrowded corner / high-latency safety: stop, never move through the
   // rest of the frame without checking the next collision.
   if(processed>=MAX_COLLISIONS&&remaining>0){puck.vx*=.5;puck.vy*=.5;}
-  separateRestingContacts(room,motions,dt);
+
   // A paddle can separate the disc across a border AFTER collision solving.
   // Enforce the rink again after every single contact (not just at tick start).
   if(![puck.x,puck.y,puck.vx,puck.vy].every(Number.isFinite)){
     Object.assign(puck,{x:W/2,y:H/2,vx:0,vy:0});
     markEvent(room,'reset',W/2,H/2,'auto');
   }
-  // Only best.kind==='goal' can award a point; separation is not a score.
-  if(puck.y<r+COLLISION_EPS){
-    if(puck.y<=-r*.85 || !mouth(puck.x)){
-      puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);
-    }
-  }
-  if(puck.y>H-r-COLLISION_EPS){
-    if(puck.y>=H+r*.85 || !mouth(puck.x)){
-      puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);
-    }
-  }
+  if(puck.y<r+COLLISION_EPS && (puck.y<=-r*.85 || !mouth(puck.x))){puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);}
+  if(puck.y>H-r-COLLISION_EPS && (puck.y>=H+r*.85 || !mouth(puck.x))){puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);}
   if(puck.x<r+COLLISION_EPS){puck.x=r+COLLISION_EPS;puck.vx=Math.abs(puck.vx);}
   if(puck.x>W-r-COLLISION_EPS){puck.x=W-r-COLLISION_EPS;puck.vx=-Math.abs(puck.vx);}
   if(puck.y<r&&!mouth(puck.x)){puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);}
   if(puck.y>H-r&&!mouth(puck.x)){puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);}
+  separateRestingContacts(room,motions,dt);
   const drag=Math.pow(.99975,dt*60);
   puck.vx*=drag;puck.vy*=drag;
   limitSpeed(puck,0,room.effect?.type==='slowPuck'?720:MAX_PUCK_SPEED);
@@ -496,10 +553,11 @@ export function spawnPower(room, now=Date.now()){
   markEvent(room,'spawn',room.power.x,room.power.y,type);
 }
 export function updatePower(room, now=Date.now()) {
+  initializeGeometry(room);
   if(room.effect && now>=room.effect.until){markEvent(room,'effectEnd',W/2,H/2,room.effect.type);room.effect=null;room.nextPowerAt=now+5500;}
   if(room.power && now>=room.power.expires){room.power=null;room.nextPowerAt=now+3000;}
   spawnPower(room,now);
-  if(!room.power)return;
+  if(!room.power){updateGeometry(room,0);return;}
   const p=room.puck, power=room.power;
   if(Math.hypot(p.x-power.x,p.y-power.y)>puckRadius(room)+24)return;
   const owner=room.lastTouch??0;
@@ -507,5 +565,165 @@ export function updatePower(room, now=Date.now()) {
   if(power.type==='turbo') {p.vx*=1.3;p.vy*=1.3;limitSpeed(p);}
   if(power.type==='slowPuck') {p.vx*=.58;p.vy*=.58;limitSpeed(p,0,720);}
   markEvent(room,'power',power.x,power.y,power.type);
-  room.power=null;
+  room.power=null;updateGeometry(room,0);
+}
+
+// ---------------------------------------------------------------------------
+// Historical contact validation with a present-time impulse (RC2).
+//
+// A player aims at the disc they SEE. That image is (downlink + playout delay)
+// old, and their finger reaches Cloudflare (uplink + send interval) later.
+// At 80 ms RTT that is ~140 ms in total: a 1000 px/s disc has moved ~140 px,
+// so a stroke that clearly touched the disc on screen missed it on the server.
+//
+// Each 'move' carries vt = the server time of the disc the player was looking
+// at. If THIS tick's mallet stroke intersects the disc as it was at that time,
+// the server validates that stroke and re-simulates its velocity up to now with
+// stepPuck(). Only velocity is committed: live position/score are never rewound.
+// This deliberately favors a proven delayed stroke over its absent impulse,
+// without promising that a late input can undo an already-authoritative goal.
+//   * capped at LAG_COMP.maxMs of history, and only for a moving mallet;
+//   * switched off for a player whose view lag exceeds LAG_COMP.disableAboveMs;
+//   * never across another hit, power, reset, cannon or goal (only walls/posts);
+//   * rejected if any radius changed, replay scores or hits another mallet;
+//   * the collision must occur DURING the submitted stroke, not afterwards;
+//   * issued snapshot/sequence/view time are validated in input.js. Clients
+//     never report collisions. A plausible timestamp is not proof of rendering.
+// ---------------------------------------------------------------------------
+export const LAG_COMP = Object.freeze({ maxMs: 360, maxJumpPx: 14, historyMs: 500, minStrokeSpeed: 60, presentWindowMs: 50, disableAboveMs: 360 });
+/** LAG_COMP_MAX_MS=0 disables compensation. maxJumpPx is a legacy config /
+ * telemetry ceiling; RC2 always applies zero positional correction. Its zero
+ * value retains the former kill-switch behavior for existing deployments. */
+export function lagCompConfig(env={}){
+  const num=(v,d)=>{const n=Number(v);return v===undefined||v===null||v===''||!Number.isFinite(n)?d:n;};
+  const maxMs=clamp(num(env.LAG_COMP_MAX_MS,LAG_COMP.maxMs),0,LAG_COMP.maxMs);
+  const maxJumpPx=clamp(num(env.LAG_COMP_MAX_JUMP_PX,LAG_COMP.maxJumpPx),0,LAG_COMP.maxJumpPx);
+  return {enabled:maxMs>0&&maxJumpPx>0,maxMs,maxJumpPx};
+}
+const LAG = new WeakMap();
+function lagState(room) {
+  let s = LAG.get(room);
+  if (!s) { s = { nonWall: 0, history: [], lag: [], inputs: [], verified: [], clock: 0, stats: { applied: 0, rejected: 0, rejGoal: 0, rejEvent: 0, rejJump: 0, rejRink: 0, savedGoals: 0, jumpMax: 0, jumpSum: 0 } }; LAG.set(room, s); }
+  return s;
+}
+/** Legacy deterministic fixture hook. Production accepts validated setViewInput only. */
+export function setViewLag(room, index, lagMs) {
+  if (!Number.isFinite(lagMs) || lagMs < 0 || lagMs > 1500) {clearViewInput(room,index);return;}
+  const s = lagState(room), prev = s.lag[index];
+  s.lag[index] = prev === undefined ? lagMs : prev * .7 + lagMs * .3;
+}
+export function clearViewInput(room,index){const s=lagState(room);delete s.lag[index];delete s.inputs[index];}
+export function setViewInput(room,index,vt,receivedAt){
+  const s=lagState(room);s.verified[index]=true;s.inputs[index]={vt,receivedAt};s.lag[index]=receivedAt-vt;
+}
+export const viewLag = (room, index) => lagState(room).lag[index] ?? 0;
+export const lagCompStats = room => ({ ...lagState(room).stats });
+export function clearLagHistory(room) { const s=lagState(room);s.history.length=0;s.nonWall++; }
+function recordLagHistory(room) {
+  const s = lagState(room);
+  s.history.push({ t: s.clock, x: room.puck.x, y: room.puck.y, vx: room.puck.vx, vy: room.puck.vy, r: puckRadius(room), nonWall: s.nonWall, pads:room.paddles.map((p,i)=>({x:p.x,y:p.y,r:paddleRadius(room,i),contactLocked:p.contactLocked,contactNX:p.contactNX,contactNY:p.contactNY})) });
+  while (s.history.length && s.clock - s.history[0].t > LAG_COMP.historyMs) s.history.shift();
+}
+const isBotPaddle = (room, i) => room.settings.mode === 'bot' && i === 1;
+function insideRink(p, r) { return [p.x, p.y, p.vx, p.vy].every(Number.isFinite) && p.x >= r - 1 && p.x <= W - r + 1 && p.y >= -r && p.y <= H + r; }
+
+/** stepPuck() + bounded lag compensation. Returns the scoring side or null. */
+export function stepPuckCompensated(room, dt, opts = {}) {
+  if(!Number.isFinite(dt)||dt<=0)return null;
+  const s = lagState(room),nonWallBefore=s.nonWall;
+  const scorer = stepPuck(room, dt);
+  const nextClock=opts.now??s.clock+dt*1000;
+  if(Math.abs(nextClock-s.clock-dt*1000)>2)clearLagHistory(room);
+  s.clock=nextClock;
+  const maxMs=clamp(opts.maxMs??LAG_COMP.maxMs,0,LAG_COMP.maxMs);
+  // A goal already crossed the authoritative line. Late input cannot erase it.
+  if(scorer===null&&opts.enabled!==false&&maxMs>0&&s.nonWall===nonWallBefore){
+    if((opts.maxJumpPx??LAG_COMP.maxJumpPx)>0&&tryCompensate(room,dt,maxMs))s.history.length=0;
+  }
+  s.inputs=[]; // a received command can authorize at most this simulation step
+  if(scorer!==null){s.history.length=0;return scorer;}
+  recordLagHistory(room);
+  return null;
+}
+
+function tryCompensate(room,dt,maxMs){
+  const s=lagState(room),pr=puckRadius(room);
+  if(!s.history.length)return false;
+  for(const m of padMotion(room,dt)){
+    if(isBotPaddle(room,m.index))continue;
+    const input=s.inputs[m.index];
+    if(s.verified[m.index]&&!input)continue;
+    // setViewLag is retained for deterministic legacy fixtures; production only
+    // supplies a fresh, validated setViewInput for this command.
+    const rawLag=input?s.clock-dt*1000-input.vt:s.lag[m.index]??0;
+    if(input&&s.clock-input.receivedAt>100)continue;
+    if(rawLag>LAG_COMP.disableAboveMs||rawLag<8)continue;
+    if(input&&rawLag>maxMs)continue; // never substitute a different historic time
+    const lag=Math.min(maxMs,rawLag);
+    if(Math.hypot(m.vx,m.vy)<LAG_COMP.minStrokeSpeed)continue;
+    const px=room.puck.x-m.pad.x,py=room.puck.y-m.pad.y,R=pr+m.radius;
+    if(Math.hypot(px,py)<R+2)continue;
+    if(sweepCircle(px,py,room.puck.vx-m.vx,room.puck.vy-m.vy,R,LAG_COMP.presentWindowMs/1000)!==null)continue;
+    const target=s.clock-dt*1000-lag;
+    const h=s.history.findLast(f=>f.t<=target);
+    if(!h||h.nonWall!==s.nonWall||Math.abs(h.r-pr)>.01||
+      h.pads.some((p,i)=>Math.abs(p.r-paddleRadius(room,i))>.01))continue;
+    const history=[...s.history,{t:s.clock,pads:room.paddles.map(p=>({...p})),nonWall:s.nonWall}];
+    const poseAt=(index,time)=>{
+      const a=history.findLast(f=>f.t<=time)||history[0];
+      const b=history.find(f=>f.t>time)||a;
+      const f=a===b?0:clamp((time-a.t)/(b.t-a.t),0,1),p=a.pads[index],q=b.pads[index];
+      return {x:p.x+(q.x-p.x)*f,y:p.y+(q.y-p.y)*f};
+    };
+    const shadow={code:room.code,settings:room.settings,effect:room.effect,nextPowerAt:room.nextPowerAt,
+      lastTouch:room.lastTouch,lastEvent:{id:0},eventLog:[],
+      geometry:room.geometry?structuredClone(room.geometry):undefined,
+      paddles:h.pads.map(p=>({...p,prevX:p.x,prevY:p.y})),
+      puck:{x:h.x,y:h.y,vx:h.vx,vy:h.vy}};
+    let goal=null;
+    const advance=(from,to,strike)=>{
+      for(let t=from;t<to-1e-6&&goal===null;){
+        const boundary=history.find(f=>f.t>t+.0001)?.t??to;
+        const end=Math.min(to,t+1000/60,boundary,strike&&t<target+dt*1000-.0001?target+dt*1000:Infinity);
+        for(let i=0;i<shadow.paddles.length;i++){
+          const point=time=>strike&&i===m.index?
+            {x:m.x0+m.vx*clamp((time-target)/1000,0,dt),y:m.y0+m.vy*clamp((time-target)/1000,0,dt)}:poseAt(i,time);
+          const a=point(t),b=point(end),p=shadow.paddles[i];
+          p.prevX=a.x;p.prevY=a.y;p.x=b.x;p.y=b.y;
+        }
+        shadow.simTime=end;goal=stepPuck(shadow,(end-t)/1000,{growRadii:false});t=end;
+      }
+    };
+    // Reconstruct the fractional history interval using the collision solver,
+    // including posts/walls; linear h.x + h.vx * lead was wrong near rebounds.
+    advance(h.t,target,false);
+    if(goal!==null||shadow.eventLog.some(e=>e.type!=='wall'))continue;
+    shadow.eventLog=[];
+    if(Math.hypot(shadow.puck.x-m.x0,shadow.puck.y-m.y0)<R-.5)continue;
+    shadow.paddles[m.index].contactLocked=false;
+    // A parked mallet intersecting the puck later in the replay is not proof
+    // that this received stroke touched the image at vt.
+    advance(target,Math.min(s.clock,target+dt*1000),true);
+    if(!shadow.eventLog.some(e=>e.type==='hit'&&e.detail===String(m.index)))continue;
+    advance(target+dt*1000,s.clock,true);
+    const contacts=shadow.eventLog.filter(e=>e.type!=='wall');
+    const hit=contacts.find(e=>e.type==='hit'&&e.detail===String(m.index));
+    if(!hit)continue;
+    const other=contacts.some(e=>!['hit','cannon'].includes(e.type)||e.detail!==String(m.index))||contacts.filter(e=>e.type==='hit').length!==1;
+    const overlap=shadow.paddles.some((p,i)=>Math.hypot(shadow.puck.x-p.x,shadow.puck.y-p.y)<pr+paddleRadius(shadow,i)-.5);
+    if(goal!==null||other||overlap||!insideRink(shadow.puck,pr)){
+      const why=goal!==null?'rejGoal':other||overlap?'rejEvent':'rejRink';
+      s.stats.rejected++;s.stats[why]++;continue;
+    }
+    room.puck.vx=shadow.puck.vx;room.puck.vy=shadow.puck.vy;room.lastTouch=m.index;
+    room.effect=shadow.effect;room.nextPowerAt=shadow.nextPowerAt;
+    const pad=room.paddles[m.index],sp=shadow.paddles[m.index];
+    pad.contactLocked=Math.hypot(room.puck.x-pad.x,room.puck.y-pad.y)<=R+6;
+    pad.contactNX=sp.contactNX;pad.contactNY=sp.contactNY;
+    if(contacts.some(e=>e.type==='cannon'))markEvent(room,'cannon',hit.x,hit.y,String(m.index));
+    markEvent(room,'hit',hit.x,hit.y,String(m.index),{comp:true,lagMs:Math.round(lag),correctionPx:0,viewTime:target});
+    s.stats.applied++;
+    return true;
+  }
+  return false;
 }

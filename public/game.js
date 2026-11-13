@@ -1,4 +1,5 @@
-import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot} from './motion.js';
+// Versioned import: a cached 5.0.2 motion.js can never be mixed with this game.js.
+import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.0.4-rc.2';
 const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
 const $ = selector => document.querySelector(selector);
 const storage = {
@@ -68,6 +69,21 @@ function setConnection(online) {
   ui.connectionText.textContent = online ? 'EN LÍNEA' : 'SIN CONEXIÓN';
 }
 function send(data) { if (app.ws?.readyState === WebSocket.OPEN) app.ws.send(JSON.stringify(data)); }
+// 5.0.3: every paddle move says WHICH moment of the disc the player was looking
+// at (server time). Cloudflare uses it only to rewind a hit by a bounded amount;
+// the client never decides collisions or goals.
+function sendMove(pos){
+  if(!app.online||app.ws?.bufferedAmount>4096)return false;
+  const stamp=performance.now();
+  if(stamp-app.sendAt<16)return false;
+  const msg={type:'move',x:pos.x,y:pos.y,seq:(app.inputSeq||0)+1};
+  // Use the last actually drawn instant, including capped extrapolation.
+  if(app.puckDraw?.exact&&Number.isFinite(app.puckDraw.at)){msg.vt=app.puckDraw.at;msg.ack=app.state?.seq;}
+  send(msg);app.inputSeq=msg.seq;app.lastSent={x:pos.x,y:pos.y};app.sendAt=stamp;
+  return true;
+}
+const DEBUG_NET=new URLSearchParams(location.search).has('debug');
+ui.connection.classList.toggle('debug',DEBUG_NET);
 function nameFor(defaultName) {
   const name = ui.playerName.value.trim().slice(0,20) || defaultName;
   storage.setItem('ah_name', name);
@@ -94,7 +110,7 @@ function connect() {
   });
   socket.addEventListener('message', e => {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
-    handleMessage(msg);
+    if(app.ws===socket)handleMessage(msg);
   });
   socket.addEventListener('close', () => {
     if (app.ws !== socket) return;
@@ -147,6 +163,8 @@ function handleMessage(msg) {
     if(Number.isFinite(ping) && ping>=0 && ping<5000){
       app.rttMs=app.rttMs===null?ping:app.rttMs*.72+ping*.28;
       ui.connectionText.textContent=(app.rttMs>240?'RED LENTA · ':'EN LÍNEA · ')+Math.round(app.rttMs)+'ms';
+      // ?debug=1 → numbers needed for the two-phone test protocol.
+      if(DEBUG_NET)ui.connectionText.textContent+=` · buf ${Math.round(app.clock?.delayMs||0)} · jit ${Math.round(app.clock?.jitter||0)} · vista ${msg.viewLag??'-'} · comp ${app.compHits||0}`;
     }
     return;
   }
@@ -162,7 +180,7 @@ function handleMessage(msg) {
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
-    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.clock={}; app.localPaddle = null;app.inputMoved=false;
+    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.clock={};app.inputSeq=0;app.lastSent=null;app.compHits=0; app.localPaddle = null;app.inputMoved=false;
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
     app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
     storage.setItem('ah_token_' + msg.code, msg.token);
@@ -191,6 +209,7 @@ function handleMessage(msg) {
   if(msg.type==='voice-signal' && app.room){handleVoiceSignal(msg.from,msg.signal).catch(()=>{});return;}
   if (msg.type === 'state' && app.room) {
     const prev=app.state;
+    if(Number.isFinite(msg.seq)&&Number.isFinite(prev?.seq)&&msg.seq<=prev.seq)return;
     const phaseChanged=!prev || prev.phase !== msg.phase;
     app.state=msg;
     app.voiceReady=msg.voiceReady||app.voiceReady;
@@ -200,7 +219,8 @@ function handleMessage(msg) {
       app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.remotePaddleFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
     }
     app.lastStateAt=performance.now();
-    // Stable server timeline; preserve normal hits/walls rather than snapping.
+    // Server timestamps are uniformly spaced even if packets arrive in bursts.
+    // Keep ordinary hit/wall snapshots; discarding them caused visual teleports.
     const tick=serverFrameTime(app.clock,msg.serverNow,app.lastStateAt);
     const trueTeleport=phaseChanged || msg.event?.type==='reset' &&
       msg.event.id!==prev?.event?.id || tick.reset;
@@ -208,15 +228,16 @@ function handleMessage(msg) {
       app.puckFrames=[];app.remotePaddleFrames=[];
       app.puckDraw=null;app.trail=[];
     }
-    pushSnapshot(app.remotePaddleFrames,{at:tick.at,poses:msg.paddles.map(p=>orient(p,msg))});
+    pushSnapshot(app.remotePaddleFrames,{at:msg.serverNow,poses:msg.paddles.map(p=>({...orient(p,msg),r:p.r}))});
     const facing=sideFor(msg)===1?-1:1;
     const oriented=orient(msg.puck,msg);
-    pushSnapshot(app.puckFrames,{at:tick.at,x:oriented.x,y:oriented.y,
+    pushSnapshot(app.puckFrames,{at:msg.serverNow,x:oriented.x,y:oriented.y,
       vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
     if (msg.event && msg.event.id > app.lastEventSeen) {
       app.lastEventSeen=msg.event.id;
       const e=orient(msg.event);
       if(msg.event.type==='hit'){
+        if(msg.event.comp&&Number(msg.event.detail)===(msg.settings?.mode==='tournament'?msg.activeSeats.indexOf(app.seat):app.seat))app.compHits=(app.compHits||0)+1;
         burst(e.x,e.y,'#bcecff',9);
         if(performance.now()-app.lastLocalHit>155) sound('hit');
       }else if(msg.event.type==='wall'){
@@ -308,7 +329,7 @@ function updateUI(){
   const time=s.remainingMs;
   ui.timer.classList.toggle('overtime',s.phase==='overtime');
   ui.timer.textContent=s.phase==='overtime'?'GOL DE ORO':time==null?'∞':`${String(Math.floor(Math.max(0,time)/60000)).padStart(2,'0')}:${String(Math.floor(Math.max(0,time)%60000/1000)).padStart(2,'0')}`;
-  const labels={turbo:'⚡ TURBO',giantPuck:'🔵 DISCO GIGANTE',giantPaddle:'🛡️ PALETA GIGANTE',miniRival:'🫧 MINI PALETA RIVAL',slowPuck:'🐢 BOLA LENTA',powerShot:'🚀 DISPARO CARGADO'};
+  const labels={turbo:'⚡ TURBO',giantPuck:'🔵 DISCO GIGANTE',giantPaddle:'🛡️ PALETA GIGANTE',miniRival:'🩷 MINI PALETA RIVAL',slowPuck:'🐢 BOLA LENTA',powerShot:'🚀 DISPARO CARGADO'};
   ui.activePower.classList.toggle('hidden',!s.effect);
   if(s.effect)ui.activePower.textContent=(labels[s.effect.type]||'PODER')+` · ${Math.max(0,Math.ceil((s.effect.until-(s.serverNow+performance.now()-app.lastStateAt))/1000))}s`;
   // Scores follow each team's fixed hue on BOTH phones (pink remains pink).
@@ -626,18 +647,12 @@ ui.voiceButton.addEventListener('click',async()=>{
   }catch{alert('No fue posible activar el micrófono. Revisa los permisos del navegador.');}
 });
 
-function ownBounds(){
-  const s=app.state,m=s?.settings?.mode;
-  if(m!=='duo' && m!=='teams')return {lo:PADDLE_R+5,hi:W-PADDLE_R-5};
-  const n=m==='duo'?2:4,part=app.seat%n,side=sideFor();
-  const lane=side===1?n-1-part:part,low=lane*W/n,high=(lane+1)*W/n;
-  return {lo:low+PADDLE_R+2,hi:high-PADDLE_R-2};
-}
+function ownBounds(){return localBounds(app.state,app.seat,sideFor());}
 function pointerPosition(e){
   const rect=ui.arena.getBoundingClientRect(),b=ownBounds();
   return {
     x:Math.min(b.hi,Math.max(b.lo,(e.clientX-rect.left)/rect.width*W)),
-    y:Math.min(H-PADDLE_R-20,Math.max(H/2+PADDLE_R+5,(e.clientY-rect.top)/rect.height*H))
+    y:Math.min(b.maxY,Math.max(b.minY,(e.clientY-rect.top)/rect.height*H))
   };
 }
 function moveInput(e, force=false) {
@@ -647,7 +662,7 @@ function moveInput(e, force=false) {
   app.inputV={x:(p.x-app.input.x)*1000/delta,y:(p.y-app.input.y)*1000/delta};
   app.prevInputAt=stamp;app.input=p;app.inputMoved=true;
   const now = performance.now();
-  if(force || now-app.sendAt>=22){send({type:'move',x:p.x,y:p.y});app.sendAt=now;}
+  if(force || now-app.sendAt>=16)sendMove(p);
 }
 ui.arena.addEventListener('pointerdown', e => {
   if (app.touchId !== null) return;
@@ -740,7 +755,7 @@ function drawArena(c,bottomTeam=0) {
   const glint=.5;
   c.fillStyle=`rgba(92,220,251,${glint*.1})`;c.fillRect(22,H/2+18,4,110);
 }
-// Cache expensive glows/gradients instead of generating each frame.
+// Cache expensive glows and gradients. Colors, shapes and sizes are unchanged.
 const paddleImages=new Map();
 function getPaddleImage(team,r){
   const key=team+':'+r;
@@ -838,12 +853,21 @@ function drawPower(s,t){
   ctx.shadowBlur=0;ctx.fillStyle='#fff1b4';ctx.font='bold 26px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(icons[s.power.type]||'✦',0,0);
   ctx.restore();
 }
-/** Ordinary bounces use the same server timeline; only goals and reset snap. */
+/** Always render from the server timeline. Ordinary bounces must not reset
+ * the puck's interpolation window; only real goals/serves/resets may snap. */
+/** Playout delay (5.0.3): measured by motion.js from the real lateness of the
+ * snapshots (p90 + half an interval), not from RTT. 5.0.1 used 115–245 ms and
+ * 5.0.2 a fixed 48–100 ms anchored on the first packet. Bot and online share
+ * it: the bot's snapshots cross the same mobile network. */
+function networkViewDelay(){
+  return Math.max(24,Math.min(170,app.clock?.delayMs??60));
+}
 function samplePuck(now,phase){
   if(!app.puckFrames.length)return app.puckDraw;
   if(!['playing','overtime'].includes(phase))return {...app.puckFrames.at(-1)};
-  return samplePuckPose(app.puckFrames,now,{
-    delayMs:app.state?.settings?.mode==='bot'?115:Math.min(245,(app.clock.delayMs||135)+Math.max(0,(app.rttMs||0)-180)*.12),maxExtrapolateMs:105
+  return samplePuckPose(app.puckFrames,app.renderTime??now,{
+    delayMs:0,
+    maxExtrapolateMs:50
   });
 }
 
@@ -878,9 +902,9 @@ function drawParticles(dt){
  * 4.7 uses 30Hz snapshots for solo games and an adaptive visual buffer. */
 function sampleRemotePaddle(index, now, fallback) {
   const isBot=app.state?.settings?.mode==='bot';
-  const sampled=sampleRemotePose(app.remotePaddleFrames,index,now,{
-    delayMs:isBot?115:Math.min(245,(app.clock.delayMs||135)+Math.max(0,(app.rttMs||0)-180)*.12),
-    maxExtrapolateMs:105,
+  const sampled=sampleRemotePose(app.remotePaddleFrames,index,app.renderTime??now,{
+    delayMs:0,
+    maxExtrapolateMs:50,
     maxSpeed:isBot?1100:3600,
     bounds:{minX:PADDLE_R,maxX:W-PADDLE_R,minY:PADDLE_R,maxY:H-PADDLE_R}
   });
@@ -894,7 +918,8 @@ function draw(t){
     return;
   }
   requestAnimationFrame(draw);
-  // 60fps target on 60/90/120Hz displays, without dropping 90Hz phones to 45fps.
+  // Frame pacing: ~60 FPS on 60/90/120 Hz screens. Simple 15ms skipping
+  // produced 45 FPS on 90Hz phones; an accumulator avoids that regression.
   if(!app.nextPaintAt)app.nextPaintAt=t;
   if(t+.75<app.nextPaintAt)return;
   app.nextPaintAt=Math.max(app.nextPaintAt+1000/60,t+1000/120);
@@ -907,15 +932,14 @@ function draw(t){
     const vx=(keys.has('ArrowRight')||keys.has('KeyD')?1:0)-(keys.has('ArrowLeft')||keys.has('KeyA')?1:0);
     const vy=(keys.has('ArrowDown')||keys.has('KeyS')?1:0)-(keys.has('ArrowUp')||keys.has('KeyW')?1:0);
     const b=ownBounds();app.input.x=Math.max(b.lo,Math.min(b.hi,app.input.x+vx*900*dt));
-    app.input.y=Math.max(H/2+42,Math.min(H-57,app.input.y+vy*900*dt));
+    app.input.y=Math.max(b.minY,Math.min(b.maxY,app.input.y+vy*900*dt));
     app.inputV={x:vx*900,y:vy*900};app.inputMoved=true;
-    if(t-app.sendAt>22){send({type:'move',...app.input});app.sendAt=t;}
+    if(t-app.sendAt>=16)sendMove(app.input);
   }
   // El último evento táctil también se envía si Android agrupa eventos.
   // Mantiene la entrada fluida sin saturar el servidor con cada evento táctil.
-  if(app.touchId!==null && app.inputMoved && t-app.sendAt>=22 && isPlaying(s)){
-    send({type:'move',...app.input});app.sendAt=t;
-  }
+  if(app.inputMoved&&isPlaying(s)&&(!app.lastSent||app.lastSent.x!==app.input.x||app.lastSent.y!==app.input.y))sendMove(app.input);
+  app.renderTime=playoutTime(app.clock,t);
   const puckTarget=samplePuck(t,s.phase)||{...orient(s.puck),vx:0,vy:0,r:s.puck.r||PUCK_R};
   app.puckDraw= ['playing','overtime'].includes(s.phase)?softenPuckPosition(app.puckDraw,puckTarget,dt):{...puckTarget};
   app.renderPhase=s.phase;
@@ -927,11 +951,11 @@ function draw(t){
   const displayed=s.paddles.map((pad,i)=>({i,p:orient(pad),mine:i===localIndex,
     team:paddleTeam(s,i),name:namesOnPaddles?s.players[i]?.name:null,
     lane:namesOnPaddles?screenLaneFor(i,s):null,
-    r:s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:
-      s.effect?.type==='miniRival' && ((i<(s.paddles.length/2))!==(s.effect.owner<(s.paddles.length/2)))?PADDLE_R*.67:PADDLE_R}));
+    r:pad.r??(s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:
+      s.effect?.type==='miniRival' && ((i<(s.paddles.length/2))!==(s.effect.owner<(s.paddles.length/2)))?PADDLE_R*.67:PADDLE_R)}));
   for(const pad of displayed.filter(p=>!p.mine)){
     const smoothed=sampleRemotePaddle(pad.i,t,pad.p);
-    drawPaddle(smoothed,pad.team,pad.r,pad.name,laneWidth,pad.lane);
+    drawPaddle(smoothed,pad.team,smoothed.r??pad.r,pad.name,laneWidth,pad.lane);
   }
   drawPuck(app.puckDraw);
   drawGoalFx(t);
@@ -941,14 +965,18 @@ function draw(t){
     // del servidor a 20 Hz. Esos datos llegan a saltos por la red y causan
     // sensación de arrastre en Android. Esta predicción NO altera la pelota.
     // El servidor conserva la física autoritativa con colisiones continuas.
-    const requested=app.inputMoved?app.input:me.p;
+    const b=ownBounds(),wanted=app.inputMoved?app.input:me.p;
+    const requested={x:Math.max(b.lo,Math.min(b.hi,wanted.x)),y:Math.max(b.minY,Math.min(b.maxY,wanted.y))};
+    // Once input has settled and been acknowledged, reconcile contact-constrained
+    // travel to the server. Active new input still follows the finger immediately.
+    const ack=s.paddles[localIndex].ack;
+    if(ack===app.inputSeq&&t-app.prevInputAt>120&&!keys.size){requested.x=me.p.x;requested.y=me.p.y;}
     if(!app.localPaddle)app.localPaddle={...me.p};
     const visual=app.localPaddle;
     const dx=requested.x-visual.x,dy=requested.y-visual.y;
     const distance=Math.hypot(dx,dy);
-    // Seguimiento independiente del 20 Hz de red. Máximo 4.200 px/s,
-    // ligeramente superior al límite del servidor de 3.600 px/s.
-    const maxDelta=4200*dt;
+    // Seguimiento independiente de la red; mismo límite de 3.600 px/s del servidor.
+    const maxDelta=3600*dt;
     if(distance>0.001){const scale=Math.min(1,maxDelta/distance);visual.x+=dx*scale;visual.y+=dy*scale;}
     // Sin arrastres ni reposicionamientos bruscos: al soltar el dedo,
     // el dato autoritativo termina de alcanzar el objetivo naturalmente.
@@ -959,5 +987,6 @@ function draw(t){
 
 }
 requestAnimationFrame(draw);
+// Light ping every 3s gives players an honest RTT indicator; no paid service.
 setInterval(()=>{if(app.online&&app.room)send({type:'ping',at:performance.now()});},3000);
 connect();

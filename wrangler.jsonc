@@ -13,6 +13,12 @@
       { "name": "HOCKEY_HUB", "class_name": "HockeyHub" }
     ]
   },
+  // RC2: validated historical impulse, zero positional rewind. Changes
+  // take effect in a new deployment/instance; disabling does not undo other fixes.
+  "vars": {
+    "LAG_COMP_MAX_MS": "360",
+    "LAG_COMP_MAX_JUMP_PX": "14"
+  },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["HockeyHub"] }
   ]

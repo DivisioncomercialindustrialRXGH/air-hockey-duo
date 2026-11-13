@@ -2,8 +2,10 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   W,H,TICK_RATE,SEND_RATE,PADDLE_R,clamp,makeRoom,countdown,movePaddles,stepPuck,
-  puckRadius,paddleRadius,updatePower,updateBot,recenterPuck,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle
+  puckRadius,paddleRadius,updatePower,updateBot,recenterPuck,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle,
+  stepPuckCompensated,setViewInput,clearViewInput,clearLagHistory,viewLag,lagCompConfig
 } from './physics.js';
+import {trackSnapshot,acceptMove} from './input.js';
 import {
   initializeTournament,prepareTournamentMatch,finishTournamentMatch,leaderboard
 } from './tournament.js';
@@ -11,11 +13,12 @@ import {
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_TTL=30*60*1000, SEAT_TTL=2*60*1000, MAX_ROOMS=45;
 const online=ws=>Boolean(ws&&ws.readyState===1);
+const RELEASE='5.0.4-rc.2-audited';
 const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname==='/health')return respond({ok:true,release:'4.6-bot-stable-rink-recenter',platform:'cloudflare'});
+    if(url.pathname==='/health')return respond({ok:true,release:RELEASE,platform:'cloudflare',lagCompensation:lagCompConfig(env)});
     if(url.pathname==='/ws'){
       if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
       const origin=request.headers.get('Origin');
@@ -29,6 +32,8 @@ export class HockeyHub extends DurableObject {
   constructor(ctx,env){
     super(ctx,env);
     this.rooms=new Map();this.timer=null;this.frame=0;this.lastTickAt=performance.now();
+    this.accumulatorMs=0;this.simNow=Date.now();this.droppedMs=0;
+    this.lagComp=lagCompConfig(env);
     ctx.blockConcurrencyWhile(async()=>{
       const records=await ctx.storage.get('rooms')||[];
       for(const [code,data] of records){
@@ -69,10 +74,10 @@ export class HockeyHub extends DurableObject {
     const state={
       type:'state',code:room.code,phase:room.phase,
       players:room.players.map(p=>p?{name:p.name,connected:p.bot===true||online(p.ws),bot:p.bot===true}:null),
-      scores:room.scores,paddles:room.paddles.map(p=>({x:p.x,y:p.y})),
+      scores:room.scores,paddles:room.paddles.map((p,i)=>({x:p.x,y:p.y,r:paddleRadius(room,i),ack:p.inputSeq||0})),
       puck:{...room.puck,r:puckRadius(room)},settings:room.settings,
       remainingMs:room.remainingMs,power:room.power,effect:room.effect,
-      event:room.lastEvent,phaseEnd:room.phaseEnd,serverNow:stamp,
+      event:room.lastEvent,phaseEnd:room.phaseEnd,serverNow:room.simTime??stamp,seq:room.stateSeq=(room.stateSeq||0)+1,
       winner:room.winner,goalBy:room.goalBy,pauseMessage:room.pauseMessage,
       activeSeats:room.activeSeats,voiceReady:room.voiceReady||[],
       tournament:room.tournament?{
@@ -86,6 +91,7 @@ export class HockeyHub extends DurableObject {
     if(spectatorFrame)room.lastSpectatorStateAt=stamp;
     room.players.forEach((p,seat)=>{
       if(watching&&!room.activeSeats.includes(seat)&&!spectatorFrame)return;
+      if(online(p?.ws))trackSnapshot(p.ws,state.seq,state.serverNow,stamp);
       this.send(p?.ws,state);
     });
   }
@@ -118,7 +124,7 @@ export class HockeyHub extends DurableObject {
   }
   updateTimer(){
     const need=[...this.rooms.values()].some(r=>['playing','countdown','goal','overtime','tournament_wait'].includes(r.phase)&&this.activeConnected(r));
-    if(need&&!this.timer){this.lastTickAt=performance.now();this.timer=setInterval(()=>this.tick(),1000/TICK_RATE);}
+    if(need&&!this.timer){this.lastTickAt=performance.now();this.accumulatorMs=0;this.simNow=Date.now();this.timer=setInterval(()=>this.tick(),1000/TICK_RATE);}
     if(!need&&this.timer){clearInterval(this.timer);this.timer=null;}
   }
   goal(r,scorer){
@@ -137,13 +143,19 @@ export class HockeyHub extends DurableObject {
       finishTournamentMatch(r,r.winner);r.phase='tournament_wait';r.phaseEnd=Date.now()+2500;
     }else r.phase='gameover';
   }
-  tick(){
+  tick(now=Date.now(),time=performance.now()){
     this.frame++;
-    const now=Date.now(),time=performance.now();
-    const elapsed=clamp((time-this.lastTickAt)/1000,1/120,.083);this.lastTickAt=time;
-    // Recover timer delays using bounded collision substeps.
-    const substeps=Math.min(5,Math.max(1,Math.ceil(elapsed/(1/60))));
-    const dt=elapsed/substeps;
+    const elapsed=Math.max(0,time-this.lastTickAt);this.lastTickAt=time;
+    const quantum=1000/TICK_RATE;
+    this.accumulatorMs+=elapsed;
+    const available=Math.floor((this.accumulatorMs+1e-6)/quantum),substeps=Math.min(8,available);
+    if(available>8){
+      const dropped=(available-8)*quantum;this.droppedMs+=dropped;this.simNow+=dropped;this.accumulatorMs-=dropped;
+      for(const r of this.rooms.values()){clearLagHistory(r);r.paddles.forEach((_,i)=>clearViewInput(r,i));}
+    }
+    this.accumulatorMs=Math.max(0,this.accumulatorMs-substeps*quantum);
+    const dt=1/TICK_RATE,startTime=this.simNow;
+    this.simNow+=substeps*quantum;
     let changed=false;
     for(const r of this.rooms.values()){
       if(!this.activeConnected(r))continue;
@@ -153,10 +165,12 @@ export class HockeyHub extends DurableObject {
         else countdown(r);
         changed=true;this.notify(r);
       }
-      if(r.phase==='countdown'&&now>=r.phaseEnd){r.phase='playing';changed=true;}
+
       if(r.phase==='goal'&&now>=r.phaseEnd){countdown(r,1-r.goalBy);changed=true;}
       for(let step=0;step<substeps;step++){
-      if(['playing','countdown','overtime'].includes(r.phase)){updateBot(r,now);movePaddles(r,dt);}
+      const stepNow=startTime+(step+1)*quantum;r.simTime=stepNow;
+      if(r.phase==='countdown'&&stepNow>=r.phaseEnd){r.phase='playing';changed=true;}
+      if(['playing','countdown','overtime'].includes(r.phase)){updateBot(r,stepNow);movePaddles(r,dt);}
       if(['playing','overtime'].includes(r.phase)){
         r.elapsedMs+=dt*1000;
         if(r.remainingMs!==null&&r.remainingMs>0){
@@ -167,16 +181,17 @@ export class HockeyHub extends DurableObject {
           }
         }
         if(r.phase==='playing'||r.phase==='overtime'){
-          const scorer=stepPuck(r,dt);
+          // Fixed authoritative physics + validated temporal impulse for the hitter.
+          const scorer=stepPuckCompensated(r,dt,{...this.lagComp,now:stepNow});
           if(scorer!==null){this.goal(r,scorer);changed=true;}
-          else updatePower(r,now);
+          else updatePower(r,stepNow);
         }
       }
-      } // Bounded catch-up complete
-      // Steady updates avoid network bursts after each collision.
+      } // End of bounded physics catch-up substeps.
+      // Predictable cadence: don't flood the WebSocket after every collision.
+      // 1v1/solo: 30Hz; teams: 20Hz to keep payload costs reasonable.
       const sendHz=['duo','teams'].includes(r.settings.mode)?20:30;
-      const divisor=Math.max(1,Math.round(TICK_RATE/sendHz));
-      if(this.frame%divisor===0)this.notify(r);
+      if(substeps&&now-(r.lastStateSentAt||0)>=1000/sendHz-.5){r.lastStateSentAt=now;this.notify(r);}
     }
     if(changed){this.updateTimer();this.ctx.waitUntil(this.persist());}
   }
@@ -208,6 +223,8 @@ export class HockeyHub extends DurableObject {
       r.players[seat]={name:name||`Jugador ${seat+1}`,token,ws,disconnectedAt:0};
     }
     ws.serializeAttachment({roomCode:code,seat,token:r.players[seat].token});
+    const idx=r.settings.mode==='tournament'?r.activeSeats.indexOf(seat):seat;
+    if(idx>=0){clearViewInput(r,idx);r.paddles[idx].inputSeq=0;}
     r.lastUsed=Date.now();
     this.send(ws,{type:'joined',code,seat,token:r.players[seat].token,settings:r.settings,chat:r.chat||[]});
     this.maybeStart(r);this.notify(r);await this.persist();
@@ -238,16 +255,22 @@ export class HockeyHub extends DurableObject {
     const a=ws.deserializeAttachment(),r=this.rooms.get(a?.roomCode),p=r?.players?.[a?.seat];
     if(!p||p.ws!==ws||p.token!==a.token)return;
     if(msg.type==='ping'){
-      if(Number.isFinite(msg.at))this.send(ws,{type:'pong',at:msg.at});
+      const idx=r.settings.mode==='tournament'?r.activeSeats.indexOf(a.seat):a.seat;
+      if(Number.isFinite(msg.at))this.send(ws,{type:'pong',at:msg.at,viewLag:idx>=0?Math.round(viewLag(r,idx)):null});
       return;
     }
     if(msg.type==='move'){
       if(!Number.isFinite(msg.x)||!Number.isFinite(msg.y))return;
       const idx=r.settings.mode==='tournament'?r.activeSeats.indexOf(a.seat):a.seat;
       if(idx<0)return;
+      const now=Date.now(),input=acceptMove(ws,msg,now,this.lagComp.maxMs);
+      if(!input)return;
       const side=teamOf(r,a.seat),b=boundsForPaddle(r,idx);
       const rx=side===1?W-msg.x:msg.x,ry=side===1?H-msg.y:msg.y;
       const pad=r.paddles[idx];pad.tx=clamp(rx,b.minX,b.maxX);pad.ty=clamp(ry,b.minY,b.maxY);
+      pad.inputSeq=input.seq;
+      clearViewInput(r,idx);
+      if(input.vt!==null)setViewInput(r,idx,input.vt,now);
     }else if(msg.type==='chat'){
       const text=typeof msg.text==='string'?msg.text.trim().slice(0,140):'';
       if(!text||Date.now()-(p.lastChat||0)<750)return;

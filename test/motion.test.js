@@ -21,9 +21,9 @@ test('Bot animation interpolates 30 Hz snapshots without stop-motion at 60 FPS',
   }
   const steps=outputs.slice(1).map((x,i)=>x-outputs[i]);
   const frozen=steps.filter(dx=>Math.abs(dx)<.01).length;
-  assert.equal(frozen,0,'30 Hz interpolation should not freeze: '+frozen+' frames');
+  assert.equal(frozen,0,`30 Hz interpolation should not freeze (was frozen ${frozen} frames)`);
   assert.ok(Math.min(...steps)>0);
-  assert.ok(Math.max(...steps)<12,'jumpy: '+Math.max(...steps));
+  assert.ok(Math.max(...steps)<12,`jumpy: ${Math.max(...steps)}`);
 });
 
 test('Never extrapolates remote paddle indefinitely during stalled network',()=>{
@@ -38,7 +38,7 @@ test('Moves continuously and without overshoot when directions reverse',()=>{
   const frames=[{at:0,poses:[{x:100,y:110}]},{at:33,poses:[{x:150,y:110}]},{at:66,poses:[{x:130,y:110}]}];
   for(let t=125;t<=155;t+=2){
     const pose=sampleRemotePose(frames,0,t,{delayMs:92});
-    assert.ok(pose.x>=100 && pose.x<=150,'overshot at '+t+': '+pose.x);
+    assert.ok(pose.x>=100 && pose.x<=150,`overshot at ${t}: ${pose.x}`);
   }
 });
 
@@ -47,5 +47,5 @@ test('Reset button is actually in visible HUD and no duplicated ID exists',()=>{
   const hud=html.match(/<div class="toolbar-actions"[\s\S]*?<\/div>/)?.[0];
   assert.ok(hud?.includes('id="reset-puck-btn"'));
   assert.equal((html.match(/id="reset-puck-btn"/g)||[]).length,1);
-  assert.match(html,/game\.js\?v=5\.0\.0/);
+  assert.match(html,/game\.js\?v=5\.0\.4-rc\.2/);
 });
