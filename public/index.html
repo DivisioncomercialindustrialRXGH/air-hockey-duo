@@ -52,6 +52,10 @@
           <option value="teams">⚡ Equipos · 4 vs. 4</option>
           <option value="tournament">🏆 Torneo eliminatorio</option>
         </select>
+        <div id="create-team-option" class="team-option hidden">
+          <label class="input-label" for="create-team">TU EQUIPO</label>
+          <select class="select-input" id="create-team"><option value="blue">🔵 Azul</option><option value="pink">🩷 Rosado</option></select>
+        </div>
         <div id="tournament-option" class="tournament-option hidden">
           <label class="input-label" for="tournament-size">PARTICIPANTES EN EL TORNEO</label>
           <select class="select-input" id="tournament-size">
@@ -68,6 +72,8 @@
         <label class="power-setting"><input id="powers-enabled" type="checkbox" checked/><span>🎁 Poderes aleatorios <small>Turbo · Disco gigante · Paleta gigante</small></span></label>
         <button id="create-btn" class="primary-button" type="button"><span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span></button>
         <div class="or-line"><span>O ÚNETE A UNA SALA</span></div>
+        <label class="input-label" for="join-team">EQUIPO AL UNIRTE (SOLO 2 VS 2 / 4 VS 4)</label>
+        <select class="select-input join-team-input" id="join-team"><option value="auto">⚪ Cualquier equipo</option><option value="blue">🔵 Azul</option><option value="pink">🩷 Rosado</option></select>
         <div class="join-row"><input id="room-code" class="text-input code-input" type="text" maxlength="6" placeholder="CÓDIGO" aria-label="Código de sala" autocapitalize="characters" spellcheck="false" /><button id="join-btn" class="secondary-button" type="button">UNIRME <span>→</span></button></div>
         <div id="home-error" class="home-error" role="status"></div>
       </section>
@@ -91,7 +97,7 @@
       <section class="audio-panel glass-panel hud-drawer hidden" id="audio-panel" aria-label="Ajustes de audio">
         <div class="drawer-head"><span>♫ MÚSICA Y SONIDO</span><button type="button" class="close-mini" id="audio-close" aria-label="Cerrar música y sonido">✕</button></div>
         <div class="slider-item"><label for="music-volume">🎵 Música de fondo</label><input type="range" id="music-volume" min="0" max="100" value="25" step="5"/><span id="music-volume-value">25%</span></div>
-        <div class="slider-item"><label for="sfx-volume">🔊 Golpes y goles</label><input type="range" id="sfx-volume" min="0" max="100" value="70" step="5"/><span id="sfx-volume-value">70%</span></div>
+        <div class="slider-item"><label for="sfx-volume">🔊 Golpes y goles</label><input type="range" id="sfx-volume" min="0" max="100" value="90" step="5"/><span id="sfx-volume-value">70%</span></div>
         <div class="music-actions"><button type="button" id="music-play-btn" class="secondary-button music-control">▶ REPRODUCIR MEZCLA</button><span id="music-status" class="audio-note" role="status" aria-live="polite">Mezcla completa de house · 62 min. En iPhone y Android, pulsa reproducir si el navegador bloquea el inicio automático.</span></div>
       </section>
       <audio id="room-music" src="/music.m4a" preload="none" loop playsinline></audio>

@@ -17,7 +17,7 @@ const ui = {
   time: $('#match-time'), target: $('#match-score'), powers: $('#powers-enabled'),
   timer: $('#game-time'), goalLabel: $('#game-target'), activePower: $('#active-power'),
   install: $('#install-btn'), installHelp: $('#install-help'),
-  mode: $('#game-mode-select'), tournamentSize: $('#tournament-size'), tournamentOption: $('#tournament-option'),
+  mode: $('#game-mode-select'), tournamentSize: $('#tournament-size'), tournamentOption: $('#tournament-option'), createTeamOption: $('#create-team-option'), createTeam: $('#create-team'), joinTeam: $('#join-team'),
   toolbarMode: $('#toolbar-mode'), playersStatus: $('#players-status'), playersStatusText: $('#players-status-text'), infoButton: $('#info-toggle'), rankingButton: $('#ranking-toggle'), tournamentPanel: $('#tournament-panel'),
   tournamentRanking: $('#tournament-ranking'), tournamentRound: $('#tournament-round'),
   audioPanel: $('#audio-panel'), audioClose: $('#audio-close'), infoClose: $('#info-close'), rankingClose: $('#ranking-close'), roomMusic: $('#room-music'), musicVolume: $('#music-volume'),
@@ -31,19 +31,25 @@ const ctx = ui.arena.getContext('2d');
 const roomFromUrl = new URLSearchParams(location.search).get('sala')?.toUpperCase();
 const app = {
   ws: null, seat: 0, room: null, name: storage.getItem('ah_name') || '', token: null,
-  online: false, desiredJoin: roomFromUrl && /^[A-Z0-9]{6}$/.test(roomFromUrl) ? roomFromUrl : null,
+  online: false, desiredJoin: null, // No entrar automáticamente: debe poder elegirse el equipo.
   pending: null, state: null, oldPhase: null, lastStateAt: 0, lastGoalBy: null,
-  puckDraw: null, trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
+  puckDraw: null, puckFrames: [], trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
   sendAt: 0, audioEnabled: storage.getItem('ah_sound') !== 'off', audio: null,
   lastFrame: performance.now(), lastUIAt:0,
   lastEventSeen: 0, lastLocalHit: 0, speculativeUntil: 0, inputV: {x:0,y:0}, prevInputAt: 0,
   particles: [], impacts: [], prevPuckR: PUCK_R, installPrompt: null, lastPower: null,
   musicVolume:Math.max(0,Math.min(1,Number(storage.getItem('ah_music_volume')??25)/100)),
-  fxVolume:Math.max(0,Math.min(1,Number(storage.getItem('ah_fx_volume')??70)/100)),
+  fxVolume:Math.max(0,Math.min(1,Number(storage.getItem('ah_fx_volume')??90)/100)),
   musicRequested:false,musicPausedByUser:false,rankAutoOpened:false,voiceEnabled:false,localStream:null,pcs:new Map(),voiceReady:[]
 };
 ui.playerName.value = app.name;
-ui.mode.addEventListener('change',()=>ui.tournamentOption.classList.toggle('hidden',ui.mode.value!=='tournament'));
+if(roomFromUrl && /^[A-Z0-9]{6}$/.test(roomFromUrl)){ui.roomCode.value=roomFromUrl;}
+function updateModeFields(){
+  ui.tournamentOption.classList.toggle('hidden',ui.mode.value!=='tournament');
+  ui.createTeamOption.classList.toggle('hidden',!['duo','teams'].includes(ui.mode.value));
+}
+ui.mode.addEventListener('change',updateModeFields);
+updateModeFields();
 ui.musicVolume.value=String(Math.round(app.musicVolume*100));
 ui.fxVolume.value=String(Math.round(app.fxVolume*100));
 ui.musicVolumeValue.textContent=`${ui.musicVolume.value}%`;
@@ -80,7 +86,7 @@ function connect() {
       send({ type: 'join', code: app.room, token: app.token || storage.getItem('ah_token_' + app.room), name: app.name });
     } else if (app.desiredJoin) {
       const code = app.desiredJoin; app.desiredJoin = null;
-      send({type:'join', code, token:storage.getItem('ah_token_' + code), name:nameFor('Jugador 2')});
+      send({type:'join', code, team:ui.joinTeam.value, token:storage.getItem('ah_token_' + code), name:nameFor('Jugador 2')});
     }
   });
   socket.addEventListener('message', e => {
@@ -115,7 +121,7 @@ function showError(msg) {
 function createFromInput() {
   unlockAudio(); ui.error.textContent = '';
   app.desiredJoin = null;
-  queue({type:'create',name:nameFor('Jugador 1'),settings:{
+  queue({type:'create',name:nameFor('Jugador 1'),team:ui.createTeam.value,settings:{
     maxScore:Number(ui.target.value),timeLimit:Number(ui.time.value),
     puckSize:document.querySelector('input[name="puck-size"]:checked')?.value || 'M',
     powers:ui.powers.checked,mode:ui.mode.value,tournamentSize:Number(ui.tournamentSize.value)
@@ -127,7 +133,7 @@ function joinFromInput() {
   unlockAudio(); ui.error.textContent = '';
   const code = ui.roomCode.value.trim().toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(code)) return showError('Escribe el código de seis caracteres.');
-  queue({ type:'join', code, token:storage.getItem('ah_token_' + code), name:nameFor('Jugador 2') });
+  queue({ type:'join', code, team:ui.joinTeam.value, token:storage.getItem('ah_token_' + code), name:nameFor('Jugador 2') });
 }
 ui.create.addEventListener('click', createFromInput);
 ui.join.addEventListener('click', joinFromInput);
@@ -141,7 +147,7 @@ function handleMessage(msg) {
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
-    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null;
+    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = [];
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
     app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
     storage.setItem('ah_token_' + msg.code, msg.token);
@@ -170,9 +176,18 @@ function handleMessage(msg) {
     app.voiceReady=msg.voiceReady||app.voiceReady;
     const oldSide=prev?sideFor(prev):sideFor(msg);
     if(prev&&oldSide!==sideFor(msg)){
-      app.inputMoved=false;app.puckDraw=null;app.trail=[];app.input={x:W/2,y:H-127};
+      app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
     }
     app.lastStateAt=performance.now();
+    // Dibujamos snapshots autoritativos; no se ejecuta otra física distinta en el celular.
+    // Si hubo choque/gol, empezamos una nueva curva, nunca interpolamos "a través" del rebote.
+    if(phaseChanged || (prev && msg.event?.id!==prev.event?.id && ['hit','wall'].includes(msg.event?.type))){
+      app.puckFrames=[];
+    }
+    const facing=sideFor(msg)===1?-1:1;
+    const oriented=orient(msg.puck,msg);
+    app.puckFrames.push({at:app.lastStateAt,x:oriented.x,y:oriented.y,vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
+    if(app.puckFrames.length>5)app.puckFrames.shift();
     if (msg.event && msg.event.id > app.lastEventSeen) {
       app.lastEventSeen=msg.event.id;
       const e=orient(msg.event);
@@ -248,7 +263,12 @@ function updateUI(){
   ui.myScore.textContent=s.scores[view]||0;ui.opScore.textContent=s.scores[other]||0;
   ui.myName.textContent=labelTeam(s,view);ui.opName.textContent=labelTeam(s,other);
   const count=s.players.filter(p=>p?.connected).length;
-  ui.playersStatusText.textContent=`${formats[s.settings?.mode]||'PARTIDA'} · 👥 ${count}/${s.players.length} conectados${mine===-1?' · Esperando tu turno':''}`;
+  const teamCount=s.settings?.mode==='duo'?2:s.settings?.mode==='teams'?4:0;
+  if(teamCount){
+    const blue=s.players.slice(0,teamCount).map(p=>p?.name||'Disponible').join(' · ');
+    const pink=s.players.slice(teamCount).map(p=>p?.name||'Disponible').join(' · ');
+    ui.playersStatusText.textContent=`👥 ${count}/${s.players.length} conectados · 🔵 AZUL: ${blue} · 🩷 ROSADO: ${pink}`;
+  }else ui.playersStatusText.textContent=`${formats[s.settings?.mode]||'PARTIDA'} · 👥 ${count}/${s.players.length} conectados${mine===-1?' · Esperando tu turno':''}`;
   updateRanking(s);
   ui.hint.textContent=mine===-1?'👀 Estás viendo el partido. ¡Tu turno llegará!':s.settings?.mode==='duo'||s.settings?.mode==='teams'?'Desliza tu paleta dentro de tu carril · ¡A ganar en equipo!':'Desliza tu paleta · ¡Atrapa los poderes!';
   const show=!['playing','overtime'].includes(s.phase)||mine===-1;
@@ -405,7 +425,16 @@ ui.fullscreen.addEventListener('click', async () => {
 
 function unlockAudio() {
   if (app.fxVolume===0 && app.musicVolume===0) return;
-  try { app.audio ??= new (window.AudioContext || window.webkitAudioContext)(); if (app.audio.state === 'suspended') app.audio.resume(); } catch {}
+  try {
+    if(!app.audio){
+      app.audio=new (window.AudioContext || window.webkitAudioContext)();
+      app.fxLimiter=app.audio.createDynamicsCompressor();
+      app.fxLimiter.threshold.value=-16;app.fxLimiter.knee.value=12;
+      app.fxLimiter.ratio.value=5;app.fxLimiter.attack.value=.003;app.fxLimiter.release.value=.16;
+      app.fxLimiter.connect(app.audio.destination);
+    }
+    if (app.audio.state === 'suspended') app.audio.resume().catch(()=>{});
+  } catch {}
 }
 function note(freq,start,duration,volume=.015,type='sine',music=false){
   if(!app.audio||(music?app.musicVolume:app.fxVolume)===0)return;
@@ -413,14 +442,14 @@ function note(freq,start,duration,volume=.015,type='sine',music=false){
   osc.type=type;osc.frequency.setValueAtTime(freq,start);
   g.gain.setValueAtTime(.0001,start);g.gain.exponentialRampToValueAtTime(volume*(music?app.musicVolume:app.fxVolume),start+.015);
   g.gain.exponentialRampToValueAtTime(.0001,start+duration);
-  osc.connect(g);g.connect(a.destination);osc.start(start);osc.stop(start+duration+.01);
+  osc.connect(g);g.connect(music?a.destination:(app.fxLimiter||a.destination));osc.start(start);osc.stop(start+duration+.01);
 }
 function sound(type){
   if(app.fxVolume<=0||!app.audio||app.audio.state!=='running')return;
   const t=app.audio.currentTime;
   if(type==='hit'){
-    note(185,t,.072,.06,'triangle');note(440,t+.013,.085,.018);
-  }else if(type==='wall')note(270,t,.047,.015,'triangle');
+    note(170,t,.105,.17,'triangle');note(370,t+.009,.07,.057,'sine');
+  }else if(type==='wall'){note(230,t,.065,.09,'triangle');note(460,t+.008,.04,.025,'sine');}
   else if(type==='power'){[510,660,900].forEach((f,i)=>note(f,t+i*.055,.13,.047,'sine'));}
   else if(type==='spawn')note(650,t,.09,.012);
   else{
@@ -568,10 +597,15 @@ ui.arena.addEventListener('pointermove', e => {
 });
 function releasePointer(e) {
   if (app.touchId !== e.pointerId) return;
-  moveInput(e,true); app.touchId = null;
+  if(e.type==='pointerup')moveInput(e,true);
+  app.touchId=null;
+  try { if(ui.arena.hasPointerCapture(e.pointerId))ui.arena.releasePointerCapture(e.pointerId); } catch {}
 }
 ui.arena.addEventListener('pointerup',releasePointer);
-ui.arena.addEventListener('pointercancel', releasePointer);
+ui.arena.addEventListener('pointercancel',releasePointer);
+ui.arena.addEventListener('lostpointercapture',e=>{if(app.touchId===e.pointerId)app.touchId=null;});
+window.addEventListener('blur',()=>{app.touchId=null;keys.clear();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)app.touchId=null;});
 // Control opcional desde un ordenador: WASD o flechas.
 const keys = new Set();
 window.addEventListener('keydown', e => {
@@ -687,26 +721,33 @@ function drawPower(s,t){
   ctx.shadowBlur=0;ctx.fillStyle='#fff1b4';ctx.font='bold 26px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(icons[s.power.type]||'✦',0,0);
   ctx.restore();
 }
-function predictLocalContact(t){
-  const p=app.puckDraw;
-  if(!p||!app.inputMoved||t-app.lastLocalHit<145||!['playing','overtime'].includes(app.state?.phase)||sideFor()===-1)return;
-  const dx=p.x-app.input.x,dy=p.y-app.input.y;
-  const r=(p.r||PUCK_R)+(app.state?.effect?.type==='giantPaddle'&&app.state.effect.owner===(app.state.settings?.mode==='tournament'?app.state.activeSeats.indexOf(app.seat):app.seat)?PADDLE_R*1.42:PADDLE_R);
-  const dist=Math.hypot(dx,dy);
-  if(dist>=r+2)return;
-  const length=Math.max(dist,.001),nx=dx/length,ny=dy/length;
-  const padVx=Math.max(-1850,Math.min(1850,app.inputV.x));
-  const padVy=Math.max(-1850,Math.min(1850,app.inputV.y));
-  const approaching=(p.vx-padVx)*nx+(p.vy-padVy)*ny;
-  if(approaching>=-60)return;
-  const energy=-(1+.86)*approaching;
-  p.vx+=energy*nx;p.vy+=energy*ny;
-  const speed=Math.hypot(p.vx,p.vy);
-  if(speed>1600){p.vx*=1600/speed;p.vy*=1600/speed;}
-  p.x=app.input.x+nx*(r+1);p.y=app.input.y+ny*(r+1);
-  app.lastLocalHit=t;app.speculativeUntil=t+105;
-  burst(p.x,p.y,'#a8f7ff',13);sound('hit');
-  if(navigator.vibrate)navigator.vibrate(12);
+/**
+ * El servidor es el único que calcula colisiones. Los últimos estados se dibujan
+ * con un ligero retardo (45 ms) y extrapolación máxima de 30 ms cuando llegan tarde.
+ * Antes, la física "especulativa" del celular chocaba con la del servidor y podía
+ * dibujar la bola saliendo hacia atrás al corregir la posición.
+ */
+function samplePuck(now,phase){
+  const frames=app.puckFrames;
+  if(!frames.length)return app.puckDraw;
+  const newest=frames[frames.length-1], target=now-45;
+  if(!['playing','overtime'].includes(phase))return {...newest};
+  if(target<=frames[0].at)return {...frames[0]};
+  for(let i=1;i<frames.length;i++){
+    const a=frames[i-1],b=frames[i];
+    if(target<=b.at){
+      const fraction=Math.max(0,Math.min(1,(target-a.at)/Math.max(1,b.at-a.at)));
+      return {x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction,
+        vx:b.vx,vy:b.vy,r:a.r+(b.r-a.r)*fraction};
+    }
+  }
+  const elapsed=Math.min(30,Math.max(0,target-newest.at))/1000;
+  const radius=newest.r;
+  let x=newest.x+newest.vx*elapsed,y=newest.y+newest.vy*elapsed;
+  x=Math.min(W-radius,Math.max(radius,x));
+  // En los bordes verticales dejamos que el servidor decida si es gol o rebote.
+  y=Math.min(H+radius,Math.max(-radius,y));
+  return {...newest,x,y};
 }
 function drawGoalFx(t){
   const g=app.goalFx;if(!g)return;
@@ -751,40 +792,7 @@ function draw(t){
     app.inputV={x:vx*900,y:vy*900};app.inputMoved=true;
     if(t-app.sendAt>33){send({type:'move',...app.input});app.sendAt=t;}
   }
-  const raw=orient(s.puck);
-  const sign=sideFor(s)===1?-1:1;
-  const playing=['playing','overtime'].includes(s.phase);
-  if(!app.puckDraw||(!playing&&app.renderPhase!==s.phase)){
-    app.puckDraw={x:raw.x,y:raw.y,vx:sign*s.puck.vx,vy:sign*s.puck.vy,r:s.puck.r||PUCK_R};
-    app.trail.length=0;
-  }else{
-    const p=app.puckDraw;
-    const r=s.puck.r||PUCK_R;
-    p.r+=(r-p.r)*Math.min(1,dt*14);
-    if(playing){
-      p.x+=p.vx*dt;p.y+=p.vy*dt;
-      if(p.x<r){p.x=r;p.vx=Math.abs(p.vx)*.96;}
-      if(p.x>W-r){p.x=W-r;p.vx=-Math.abs(p.vx)*.96;}
-      if(p.y<r && Math.abs(p.x-W/2)>94-r){p.y=r;p.vy=Math.abs(p.vy)*.96;}
-      if(p.y>H-r && Math.abs(p.x-W/2)>94-r){p.y=H-r;p.vy=-Math.abs(p.vy)*.96;}
-      if(t>app.speculativeUntil){
-        // Predict ahead while blending toward server authority; avoids stop-and-go on mobile.
-        const transit=.022;
-        const x=raw.x+sign*s.puck.vx*transit;
-        const y=raw.y+sign*s.puck.vy*transit;
-        const err=Math.hypot(x-p.x,y-p.y);
-        const correction=err>200?1:Math.min(.35,.14+dt*4);
-        p.x+=(x-p.x)*correction;p.y+=(y-p.y)*correction;
-        p.vx+=(sign*s.puck.vx-p.vx)*.48;
-        p.vy+=(sign*s.puck.vy-p.vy)*.48;
-      }
-      predictLocalContact(t);
-    }else{
-      p.x+=(raw.x-p.x)*Math.min(1,dt*16);
-      p.y+=(raw.y-p.y)*Math.min(1,dt*16);
-      p.vx=0;p.vy=0;
-    }
-  }
+  app.puckDraw=samplePuck(t,s.phase)||{...orient(s.puck),vx:0,vy:0,r:s.puck.r||PUCK_R};
   app.renderPhase=s.phase;
   drawPower(s,t);
   const localIndex=s.settings?.mode==='tournament'?s.activeSeats.indexOf(app.seat):app.seat;
@@ -797,7 +805,9 @@ function draw(t){
   drawGoalFx(t);
   if(localIndex>=0){
     const me=displayed.find(p=>p.mine);
-    drawPaddle(app.inputMoved?app.input:me.p,true,me.r);
+    const requested=app.inputMoved?app.input:me.p;
+    // La paleta se sigue viendo bajo el dedo, sin bloquearse por un pointer cancelado.
+    drawPaddle(requested,true,me.r);
   }
   drawParticles(dt);
   return;

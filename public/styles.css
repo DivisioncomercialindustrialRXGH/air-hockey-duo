@@ -95,3 +95,6 @@ body:before{content:"";position:fixed;inset:0;background-image:linear-gradient(r
 }
 @media(max-width:370px){.game-mode #toolbar-mode,.game-mode .game-divider{display:none}.game-mode strong{letter-spacing:.5px;font-size:9px}.toolbar-actions{gap:1px}.game-toolbar .icon-button{width:30px;height:31px;font-size:15px}}
 @media(prefers-reduced-motion:reduce){.hud-drawer{animation:none}}
+
+/* V4.2: elección clara de equipos sin alterar el HUD ni la pista. */
+.team-option{margin:6px 0 11px}.join-team-input{margin-bottom:9px;max-width:100%}

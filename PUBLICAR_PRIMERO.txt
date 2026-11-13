@@ -1,11 +1,12 @@
-AIR HOCKEY DUO ARENA 4.1
+AIR HOCKEY DUO ARENA 4.2 — ACTUALIZACIÓN CORRECTIVA
 
-1. Extrae el ZIP: los archivos están en su raíz.
-2. Clona tu repositorio air-hockey-duo con GitHub Desktop.
-3. Copia contenido extraído en la carpeta clonada, aceptando reemplazos.
-4. En GitHub Desktop: Commit to main y Push origin.
-5. Cloudflare despliega el mismo Worker automáticamente.
-6. Comprueba el enlace habitual.
+1. Descomprime el ZIP. No subas el archivo ZIP a GitHub como un único fichero.
+2. Abre el repositorio EXISTENTE: https://github.com/DivisioncomercialindustrialRXGH/air-hockey-duo
+3. Add file > Upload files; arrastra el contenido descomprimido, conservando carpetas public, src y test. Si GitHub no permite reemplazar los archivos, usa GitHub Desktop para copiar el contenido y hacer Commit + Push.
+4. Escribe como commit: "Arena 4.2 - Física estable, equipos y sonido". Publica en main.
+5. Cloudflare desplegará automáticamente a https://air-hockey-duo.global-realtor1.workers.dev
+6. Crea UNA SALA NUEVA para comprobar la nueva física y prueba con otro teléfono. No actualices mientras hay una partida en curso.
+7. Si usas la app instalada, ciérrala por completo y vuelve a abrirla; si persiste código anterior, borra datos del sitio y reinstálala.
 
-La mezcla adjunta está en public/music.m4a. Verifica derechos para distribución pública.
-Los paneles de chat, música, participantes y torneo quedan plegados.
+NOVEDADES: menos saltos del disco, sin doble simulación de rebotes, golpe sin inversión de dirección por doble colisión, paleta con mejor respuesta, equipos azul/rosado y golpes más sonoros.
+La mezcla de música se conserva en public/music.m4a. Verifica los permisos de distribución de ese audio antes de alojarlo públicamente.

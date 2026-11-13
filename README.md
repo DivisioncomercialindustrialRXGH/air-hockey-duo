@@ -1,6 +1,19 @@
-# 🏒 Air Hockey DUO ARENA — Versión 4.1 (música + paneles plegables)
+# 🏒 Air Hockey DUO ARENA — Versión 4.2 (corrección de física y equipos)
 
 Nueva actualización de **Air Hockey DUO** para teléfonos Android/iPhone, alojada en **Cloudflare Workers Free + Durable Objects (SQLite)**. Conserva el servidor multijugador de la versión anterior, código de sala y WebSockets.
+
+## Correcciones puntuales de la versión 4.2
+
+**No se rediseñó la pantalla del juego.** Esta versión atiende los defectos informados en la 4.1:
+
+- **Disco con dirección errática:** eliminada la segunda simulación de rebotes hecha por el teléfono; el servidor determina exclusivamente la física del disco. La imagen en el celular interpola los últimos estados del servidor, evitando correcciones que lo hacían retroceder visualmente.
+- **Rebotes falsos o repetidos:** detección continua de choque entre disco y paleta incluso con movimientos rápidos, un solo impulso por contacto, conservación de la normal hasta que los objetos se separan, límite independiente a la fuerza del dedo. Se prueban golpes frontales rápidos y entradas diagonales intensas.
+- **Paleta aparentemente trabada:** seguimiento más rápido del dedo y liberación correcta del toque cuando se pierde el foco, se cancela el gesto o se interrumpe la captura del puntero.
+- **Equipos 2 vs. 2 y 4 vs. 4:** al crear una sala se elige equipo azul o rosado; al entrar en una sala se puede pedir azul, rosado o cualquiera. Si el equipo elegido está lleno, aparece un aviso en lugar de cambiar de bando sin consultar. Los enlaces de invitación muestran el código y permiten escoger equipo antes de unirse.
+- **Golpes más audibles:** mayor volumen y ataque nítido para choque con paleta y pared, compresor de audio para prevenir saturación, valor predeterminado de efectos 90 % para nuevos jugadores. Si ya configuraste volumen antes, se respeta tu preferencia guardada y puedes subirlo desde ♫.
+- **Actualización PWA:** service worker versión `hockey-duo-v4-2`, para sustituir correctamente scripts y estilos de la app instalada.
+
+**Pruebas:** 15 comprobaciones automatizadas del servidor, además de revisión de la interfaz en emulador de teléfono de 320 y 375 píxeles sin errores JavaScript. **Aún requiere validación real en dos teléfonos y redes distintas**, especialmente para la sensación de respuesta del disco.
 
 ## Novedades
 
@@ -16,7 +29,7 @@ Nueva actualización de **Air Hockey DUO** para teléfonos Android/iPhone, aloja
 - **Chat de voz experimental** en 1 vs. 1 y 2 vs. 2 usando WebRTC + STUN. Necesita permiso de micrófono. **No usa TURN:** en algunas redes o restricciones NAT puede no conectar. No se garantiza voz en todos los teléfonos. El audio no se guarda en el servidor.
 - **Música de fondo (mezcla incluida) y efectos independientes**, con control de volumen del 0 al 100 %, sonido de impactos, rebotes y goles.
 - **Interfaz liquid glass** ligera, efectos de partículas y animación al marcar.
-- Física de colisiones con subpasos, huecos reales en las porterías y mejor respuesta local al dedo.
+- Física de colisiones con subpasos, choques continuos, huecos reales en las porterías y seguimiento rápido de la paleta.
 - Dibujo Canvas con pista prerenderizada, DPR móvil limitado a 1.35, menos mensajes de movimiento y frecuencia reducida para espectadores de torneos.
 - **PWA instalable** (iconos 180/192/512, manifiesto, service worker). En iPhone: Safari > Compartir > Añadir a pantalla de inicio; en Android: Chrome > Instalar app / Añadir a pantalla de inicio. El juego requiere Internet para multijugador.
 - Botón para solicitar pantalla completa donde el navegador lo permita.
@@ -31,7 +44,7 @@ Nueva actualización de **Air Hockey DUO** para teléfonos Android/iPhone, aloja
 
 Tu proyecto ya publicado es `air-hockey-duo` en GitHub y Cloudflare; **no necesitas crear otro proyecto**.
 
-1. Descarga el ZIP de la versión 4.0 y descomprímelo en Windows.
+1. Descarga el ZIP de la versión 4.2 y descomprímelo en Windows.
 2. En GitHub entra al repositorio actual: `https://github.com/DivisioncomercialindustrialRXGH/air-hockey-duo`.
 3. Sustituye/actualiza los archivos dentro de sus mismas rutas (`public/`, `src/`, `test/`, `package.json`, `wrangler.jsonc`, etc.). No subas la carpeta contenedora ni el ZIP como archivo único. Para una actualización de múltiples archivos, GitHub Desktop puede resultar más sencillo que el editor web.
 4. Guarda los cambios en la rama `main` mediante un **commit**.
@@ -66,7 +79,7 @@ Las salas tienen códigos de seis caracteres; son privadas en la práctica, pero
 - `src/worker.js` — Motor de salas, WebSockets, chat, señalización opcional de voz, clasificación y persistencia.
 - `src/physics.js` — Colisiones, paletas, poderes, tamaños y límites de la pista.
 - `src/tournament.js` — Sorteos, rondas, ganadores y tabla final.
-- `public/game.js` — Canvas, input táctil, predicción, sonido, chat y WebRTC opcional.
+- `public/game.js` — Canvas, input táctil, interpolación autoritativa del disco, sonido, chat y WebRTC opcional.
 - `public/music.m4a` — Mezcla completa adjuntada por el usuario, comprimida para móvil; exige derechos antes de alojarla públicamente.
 - `public/sw.js` — Service worker para instalar la web como PWA.
 - `public/index.html`, `public/styles.css` — Interfaz liquid glass adaptada a móviles.

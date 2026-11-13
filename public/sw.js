@@ -1,4 +1,4 @@
-const CACHE='hockey-duo-v4-1';
+const CACHE='hockey-duo-v4-2';
 const CORE=['/','/index.html','/styles.css','/game.js','/manifest.webmanifest','/favicon.svg','/icon-192.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting()));

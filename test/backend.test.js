@@ -164,3 +164,38 @@ test('4-person tournament draws pairs, advances winners and crowns a champion',a
   assert.equal(r.tournament.stats[r.tournament.champion].wins,2);
   clearInterval(hub.timer);await ctx.flush();
 });
+
+test('players explicitly select blue and pink seats in 2 vs 2, including on creation',async()=>{
+  const ctx=new Context();const hub=new HockeyHub(ctx,{});await ctx.ready;
+  const sockets=Array.from({length:5},()=>new Socket());ctx.sockets.push(...sockets);
+  await send(hub,sockets[0],{type:'create',name:'Creador rosa',team:'pink',settings:{mode:'duo'}});
+  const code=sockets[0].ofType('joined')[0].code;
+  assert.equal(sockets[0].ofType('joined')[0].seat,2);
+  await send(hub,sockets[1],{type:'join',code,name:'Azul 1',team:'blue'});
+  assert.equal(sockets[1].ofType('joined')[0].seat,0);
+  await send(hub,sockets[2],{type:'join',code,name:'Azul 2',team:'blue'});
+  assert.equal(sockets[2].ofType('joined')[0].seat,1);
+  await send(hub,sockets[3],{type:'join',code,name:'Azul extra',team:'blue'});
+  assert.match(sockets[3].ofType('error').at(-1).message,/AZUL.*lleno/i);
+  await send(hub,sockets[4],{type:'join',code,name:'Rosa 2',team:'pink'});
+  assert.equal(sockets[4].ofType('joined')[0].seat,3);
+  assert.equal(hub.rooms.get(code).phase,'countdown');
+  clearInterval(hub.timer);
+});
+
+test('4 vs 4 admits team preference but not seat overflow',async()=>{
+  const ctx=new Context();const hub=new HockeyHub(ctx,{});await ctx.ready;
+  const sockets=Array.from({length:9},()=>new Socket());ctx.sockets.push(...sockets);
+  await send(hub,sockets[0],{type:'create',name:'Rosa fundador',team:'pink',settings:{mode:'teams'}});
+  const code=sockets[0].ofType('joined')[0].code;
+  assert.equal(sockets[0].ofType('joined')[0].seat,4);
+  for(let i=1;i<5;i++){
+    await send(hub,sockets[i],{type:'join',code,team:'blue',name:`Azul ${i}`});
+    assert.equal(sockets[i].ofType('joined')[0].seat,i-1);
+  }
+  await send(hub,sockets[5],{type:'join',code,team:'blue',name:'Azul extra'});
+  assert.match(sockets[5].ofType('error').at(-1).message,/AZUL.*lleno/i);
+  for(let i=6;i<9;i++)await send(hub,sockets[i],{type:'join',code,team:'pink',name:`Rosa ${i}`});
+  assert.equal(hub.rooms.get(code).phase,'countdown');
+  clearInterval(hub.timer);
+});

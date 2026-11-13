@@ -15,7 +15,7 @@ const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'c
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname==='/health')return respond({ok:true,release:'4.0',platform:'cloudflare'});
+    if(url.pathname==='/health')return respond({ok:true,release:'4.2',platform:'cloudflare'});
     if(url.pathname==='/ws'){
       if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
       const origin=request.headers.get('Origin');
@@ -182,7 +182,15 @@ export class HockeyHub extends DurableObject {
     const tok=typeof msg.token==='string'?msg.token:'';
     let seat=tok.length===32?r.players.findIndex(p=>p?.token===tok):-1;
     if(seat<0 && r.settings.mode==='tournament'&&r.tournament?.started)return this.send(ws,{type:'error',message:'El torneo ya comenzó. No admite nuevos jugadores.'});
-    if(seat<0)seat=r.players.findIndex(p=>p===null);
+    if(seat<0){
+      const requested=msg.team==='blue'?0:msg.team==='pink'?1:-1;
+      const teamCount=r.settings.mode==='duo'?2:r.settings.mode==='teams'?4:0;
+      if(teamCount && requested!==-1){
+        const offset=requested*teamCount;
+        seat=r.players.findIndex((p,i)=>p===null&&i>=offset&&i<offset+teamCount);
+        if(seat<0)return this.send(ws,{type:'error',message:requested===0?'El equipo AZUL ya está lleno. Elige ROSADO.':'El equipo ROSADO ya está lleno. Elige AZUL.'});
+      }else seat=r.players.findIndex(p=>p===null);
+    }
     if(seat<0)return this.send(ws,{type:'error',message:'Sala llena. Espera otra partida.'});
     const name=typeof msg.name==='string'?msg.name.trim().slice(0,20):'';
     if(r.players[seat]){
@@ -216,7 +224,7 @@ export class HockeyHub extends DurableObject {
       if(ws.deserializeAttachment()?.roomCode)return;
       this.prune();if(this.rooms.size>=MAX_ROOMS)return this.send(ws,{type:'error',message:'Se alcanzó el límite temporal de salas.'});
       const code=this.newCode();const r=makeRoom(code,sanitizeSettings(msg.settings||{}));r.chat=[];r.voiceReady=Array(r.players.length).fill(false);
-      this.rooms.set(code,r);await this.join(ws,{code,name:msg.name});return;
+      this.rooms.set(code,r);await this.join(ws,{code,name:msg.name,team:msg.team});return;
     }
     if(msg.type==='join')return this.join(ws,msg);
     const a=ws.deserializeAttachment(),r=this.rooms.get(a?.roomCode),p=r?.players?.[a?.seat];
