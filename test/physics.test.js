@@ -142,3 +142,38 @@ test('bot settings are validated and its paddles are bound by human physics limi
     assert.ok(Math.hypot(r.paddles[1].x-x0,r.paddles[1].y-y0)<35,'sin teletransportacion');
   }
 });
+
+test('bot no longer hovers at a permanent gap: all difficulties actually strike a frontal puck',async()=>{
+  const {updateBot}=await import('../src/physics.js');
+  for(const botDifficulty of ['easy','hard','god']){
+    const r=makeRoom('BOTHIT',{mode:'bot',botDifficulty,powers:false});
+    r.puck={x:250,y:295,vx:0,vy:-450};
+    let hit=false;
+    for(let frame=0;frame<60;frame++){
+      updateBot(r,100000+frame*1000/60);
+      movePaddles(r,1/60);
+      stepPuck(r,1/60);
+      if(r.lastEvent.type==='hit'&&r.lastEvent.detail==='1'){hit=true;break;}
+    }
+    assert.ok(hit,`${botDifficulty} debe golpear el disco, no solo seguirlo`);
+  }
+});
+
+test('god bot predicts diagonal puck and strikes it without teleporting',async()=>{
+  const {updateBot,boundsForPaddle}=await import('../src/physics.js');
+  const r=makeRoom('BOTDIA',{mode:'bot',botDifficulty:'god',powers:false});
+  r.puck={x:420,y:395,vx:-500,vy:-800};
+  let hit=false;
+  for(let frame=0;frame<75;frame++){
+    const before={...r.paddles[1]};
+    updateBot(r,100000+frame*1000/60);
+    movePaddles(r,1/60);
+    const pad=r.paddles[1];
+    assert.ok(Math.hypot(pad.x-before.x,pad.y-before.y)<=1900/60+0.02,'bot respeta velocidad maxima');
+    const b=boundsForPaddle(r,1);
+    assert.ok(pad.x>=b.minX&&pad.x<=b.maxX&&pad.y>=b.minY&&pad.y<=b.maxY);
+    stepPuck(r,1/60);
+    if(r.lastEvent.type==='hit'&&r.lastEvent.detail==='1'){hit=true;break;}
+  }
+  assert.ok(hit,'Dios debe atacar el disco diagonal');
+});

@@ -1,61 +1,23 @@
-# 🏒 AIR HOCKEY DUO ARENA — 4.3
+# 🏒 Air Hockey DUO Arena 4.5 — Paletas y equipos identificables
 
-**Corrección de física de alta velocidad + modo contra bot en 3 niveles.**
+Actualización acumulativa de la versión 4.3: incorpora las correcciones de **4.4** (bot que golpea y respuesta fluida de la paleta en Android) y estas novedades:
 
-Esta actualización mantiene el diseño **liquid glass de Arena 4.2**, música y controles plegables. Se ejecuta en el mismo Cloudflare Worker (`air-hockey-duo`) mediante Durable Objects. No es necesario crear otro proyecto ni cambiar de enlace.
+- **Azul y Rosado son identidades fijas**, tanto en 1 vs. 1 como en 2 vs. 2 y 4 vs. 4. Cuando el jugador rosado juega desde su teléfono sigue viendo su paleta rosada abajo y la azul arriba; la pista se adapta sin girar los nombres.
+- En **2 vs. 2 y 4 vs. 4**, encima de cada paleta aparece el **apodo del jugador**. Los nombres se dibujan en Canvas con un límite de anchura que respeta los carriles estrechos, sin crear elementos HTML por jugador ni ralentizar la física.
+- Marcador y porterías mantienen los colores consistentes, sin importar desde qué teléfono se observa la partida.
+- Conserva diseño, música, paneles plegables, poderes, chat, voz experimental, torneos y PWA.
 
-## Mejoras principales
+## Pruebas
 
-### Física del disco (prioridad máxima)
+`npm run check` ejecuta las pruebas de física, bot, salas, reconexión y torneos. Se añadieron pruebas nuevas para identificar los equipos de forma consistente en las pantallas opuestas. La publicación en dos móviles distintos continúa siendo una prueba manual necesaria.
 
-- **Colisión continua / swept circle** para detectar el primer instante de contacto entre el disco y cada paleta **aunque ambos se muevan en un solo fotograma**. Esto reduce el problema de que el disco atraviese la paleta a gran velocidad.
-- Los choques se procesan en orden temporal dentro del frame, incluyendo **paredes, postes y huecos reales de portería**.
-- Límite de rapidez de disco ajustado a **1.600 unidades/s** para mantener control y coherencia con la frecuencia de estados de red.
-- El contacto sostenido con una paleta ya no provoca impulsos completos repetidos. La corrección de solapamiento permite solo un arrastre limitado.
-- La paleta mostrada en el móvil no se separa más de 18 unidades de su posición confirmada por el servidor. Esto evita el engaño visual en el que el disco atraviesa una paleta dibujada mucho más adelante que su posición física real.
-- Se conserva una sola fuente de verdad para las colisiones: **el servidor Cloudflare**. La interfaz no calcula una física competitiva distinta.
+## Publicación
 
-### Nuevo: jugar solo contra el bot
+1. Descomprimir el ZIP. Subir su **contenido** a `DivisioncomercialindustrialRXGH/air-hockey-duo` mediante **GitHub → Add file → Upload files** (sin subir el ZIP).
+2. Crear el commit `Arena 4.5 - Equipos fijos, apodos y bot fluido` en rama `main`.
+3. Confirmar despliegue verde en Cloudflare (el mismo Worker y el mismo enlace). No crear otro proyecto.
+4. Cerrar por completo la PWA y abrirla de nuevo tras la actualización. Probar una partida desde cada teléfono.
 
-Al crear partida, selecciona **🤖 Contra el bot · jugar solo** y después el nivel:
+Node.js 20+; Cloudflare Workers + Durable Objects; `npm run check`; `npm run dev`.
 
-- **Fácil:** reacción lenta, velocidad reducida y más error de puntería.
-- **Difícil:** reacción media, mayor velocidad y puntería más precisa.
-- **Dios:** reacción rápida y puntería casi perfecta, **pero sin teletransportarse y con la misma física**.
-
-Al crear la sala, la partida inicia automáticamente: **no hace falta esperar otro teléfono**. Se mantienen los ajustes de puntos, tiempo, tamaño S/M/L, poderes, sonidos y música. Se puede pedir **revancha**. El modo bot **sí requiere Internet** porque juega en el mismo motor del servidor; no es todavía un modo offline.
-
-### Se conservan
-
-Duelo 1 vs 1, equipos 2 vs 2 y 4 vs 4 con elección Azul/Rosado, torneos eliminatorios, mensajes, emojis, voz beta, música y efectos con volúmenes independientes, modo PWA instalable, poderes aleatorios, pantalla completa cuando el navegador lo admite.
-
-## Pruebas y límites
-
-Pruebas locales: **20 casos automatizados superados** (`npm run check`), incluyendo impactos rápidos atravesando el recorrido de una paleta en un solo frame, S/M/L, bot con los tres niveles, revancha, persistencia del bot, reconexiones, equipos y torneos. Son pruebas de código y servidor simulado. **No son una garantía de ausencia total de errores en móviles reales** ni sustituyen pruebas de latencia real.
-
-### Publicar sobre la versión actual
-
-1. Descarga **Air_Hockey_DUO_Arena_4_3_Fisica_Pro_BOT.zip** y descomprímelo.
-2. Abre tu repositorio actual: `https://github.com/DivisioncomercialindustrialRXGH/air-hockey-duo`.
-3. En **Add file → Upload files**, sube el **contenido** descomprimido conservando rutas: `public/`, `src/`, `test/`, `package.json`, `wrangler.jsonc`. No subas el ZIP ni una carpeta exterior adicional. Si la web no te permite sobrescribir algún archivo, usa su editor o GitHub Desktop, sin borrar el repositorio.
-4. Haz **Commit changes** en `main` con un mensaje como `Arena 4.3 - Física avanzada y bot`.
-5. Cloudflare debe detectar el nuevo commit y publicar un nuevo build automáticamente. Comprueba el éxito en Workers & Pages → air-hockey-duo → Builds/Deployments.
-6. Abre `https://air-hockey-duo.global-realtor1.workers.dev`. Si aún ves 4.2, actualiza la página o cierra/reabre la PWA para que se renueve el service worker.
-
-**Recomendación:** actualiza entre partidas; un despliegue puede interrumpir salas existentes. No hace falta crear otro Worker. El despliegue no se ha realizado desde esta entrega.
-
-### Desarrollo local
-
-Node.js >=20.
-
-```bash
-npm install
-npm run check
-npm run dev
-```
-
-Archivos: `src/physics.js` (física y bot), `src/worker.js` (salas y WebSockets), `public/game.js` (interfaz y Canvas), `test/` (pruebas), `public/music.m4a` (mezcla comprimida).
-
-**Nota de música:** tu mezcla incluye música de intérpretes comerciales. Para hacerla pública, debes contar con los derechos correspondientes.
-
-**Costo:** el proyecto puede funcionar en el plan Free de Cloudflare mientras permanezca dentro de sus cuotas.
+**Nota:** La música original contiene obras de terceros; distribuirla públicamente puede requerir permisos de titulares de derechos.

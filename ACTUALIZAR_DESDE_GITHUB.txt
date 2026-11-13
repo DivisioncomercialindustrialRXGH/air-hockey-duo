@@ -1,12 +1,16 @@
-AIR HOCKEY DUO ARENA 4.3 - PASOS PARA ACTUALIZAR
+AIR HOCKEY DUO ARENA 4.5 - ACTUALIZACIÓN DESDE GITHUB
 
-1. Descomprime el ZIP.
-2. Abre https://github.com/DivisioncomercialindustrialRXGH/air-hockey-duo
-3. Add file > Upload files > arrastra el contenido de la carpeta extraida,
-   manteniendo las rutas public/, src/, test/ y los archivos de la raiz.
-4. Commit directly to main, mensaje: Arena 4.3 - Fisica avanzada y BOT.
-5. Cloudflare desplegara al detectar el commit.
-6. Comprueba el BUILD en Cloudflare y prueba desde el mismo enlace del juego.
+1. Descomprime este ZIP en tu computadora.
+2. Entra a https://github.com/DivisioncomercialindustrialRXGH/air-hockey-duo
+3. Add file > Upload files > arrastra TODO el contenido de la carpeta extraída.
+   Los directorios public/, src/ y test/ deben quedar en la raíz del repositorio.
+   No subas el ZIP como archivo ni la carpeta que lo contiene.
+4. Confirma en main con el mensaje:
+   Arena 4.5 - Equipos fijos, apodos y bot fluido
+5. Revisa el nuevo build de Cloudflare en Workers & Pages > air-hockey-duo.
+6. Cierra y vuelve a abrir la aplicación instalada en ambos teléfonos.
 
-NO borres el repositorio ni crees otro proyecto Cloudflare.
-MODO BOT: requiere conexion a Internet; selecciona nivel Facil, Dificil o Dios.
+Esta actualización incluye la física, modo bot y mejora de paleta de 4.4,
+además de equipos azul/rosado persistentes y etiquetas con nombres en 2 vs 2/4 vs 4.
+
+NO borres el repositorio ni crees otro Worker. Mantienes el enlace del juego.

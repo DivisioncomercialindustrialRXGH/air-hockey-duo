@@ -34,7 +34,7 @@ const app = {
   online: false, desiredJoin: null, // No entrar automáticamente: debe poder elegirse el equipo.
   pending: null, state: null, oldPhase: null, lastStateAt: 0, lastGoalBy: null,
   puckDraw: null, puckFrames: [], trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
-  sendAt: 0, audioEnabled: storage.getItem('ah_sound') !== 'off', audio: null,
+  sendAt: 0, localPaddle: null, audioEnabled: storage.getItem('ah_sound') !== 'off', audio: null,
   lastFrame: performance.now(), lastUIAt:0,
   lastEventSeen: 0, lastLocalHit: 0, speculativeUntil: 0, inputV: {x:0,y:0}, prevInputAt: 0,
   particles: [], impacts: [], prevPuckR: PUCK_R, installPrompt: null, lastPower: null,
@@ -153,7 +153,7 @@ function handleMessage(msg) {
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
-    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = [];
+    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.localPaddle = null;app.inputMoved=false;
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
     app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
     storage.setItem('ah_token_' + msg.code, msg.token);
@@ -182,6 +182,7 @@ function handleMessage(msg) {
     app.voiceReady=msg.voiceReady||app.voiceReady;
     const oldSide=prev?sideFor(prev):sideFor(msg);
     if(prev&&oldSide!==sideFor(msg)){
+      app.localPaddle=null;
       app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
     }
     app.lastStateAt=performance.now();
@@ -207,6 +208,7 @@ function handleMessage(msg) {
       }else if(msg.event.type==='spawn')sound('spawn');
     }
     if (phaseChanged) {
+      if(['goal','countdown','paused','gameover'].includes(msg.phase)){app.localPaddle=null;app.inputMoved=false;}
       if(['goal','gameover','tournament_wait'].includes(msg.phase)){
         const e=orient(msg.puck);
         burst(e.x,Math.max(10,Math.min(H-10,e.y)),msg.goalBy===sideFor(msg)?'#51e5ff':'#ff65b9',32);
@@ -227,6 +229,15 @@ function sideFor(s=app.state){
   if(mode==='teams')return app.seat<4?0:1;
   return app.seat;
 }
+/** Team color belongs to the player's seat, NEVER to who is viewing this screen. */
+function paddleTeam(s, paddleIndex) {
+  const mode = s?.settings?.mode;
+  if (mode === 'duo') return paddleIndex < 2 ? 0 : 1;
+  if (mode === 'teams') return paddleIndex < 4 ? 0 : 1;
+  return paddleIndex === 0 ? 0 : 1;
+}
+function teamColor(team){return team === 0 ? '#51e5ff' : '#ff65b9';}
+function isTeamMatch(s){return s?.settings?.mode === 'duo' || s?.settings?.mode === 'teams';}
 function isPlaying(s=app.state){return s&&sideFor(s)!==-1&&['playing','overtime','countdown'].includes(s.phase);}
 function labelTeam(s,side){
   if(s.settings?.mode==='tournament'){
@@ -266,6 +277,9 @@ function updateUI(){
   const labels={turbo:'⚡ TURBO',giantPuck:'🔵 DISCO GIGANTE',giantPaddle:'🛡️ PALETA GIGANTE'};
   ui.activePower.classList.toggle('hidden',!s.effect);
   if(s.effect)ui.activePower.textContent=(labels[s.effect.type]||'PODER')+` · ${Math.max(0,Math.ceil((s.effect.until-(s.serverNow+performance.now()-app.lastStateAt))/1000))}s`;
+  // Scores follow each team's fixed hue on BOTH phones (pink remains pink).
+  ui.game.style.setProperty('--my-team-color',teamColor(view));
+  ui.game.style.setProperty('--their-team-color',teamColor(other));
   ui.myScore.textContent=s.scores[view]||0;ui.opScore.textContent=s.scores[other]||0;
   ui.myName.textContent=labelTeam(s,view);ui.opName.textContent=labelTeam(s,other);
   const count=s.players.filter(p=>p?.connected).length;
@@ -346,7 +360,7 @@ ui.leave.addEventListener('click', () => {
   if (!confirm('¿Salir de la partida?')) return;
   const oldWs = app.ws;
   app.ws = null; app.room = null; app.token = null; app.state = null; app.desiredJoin = null;
-  app.pending = null; app.touchId = null; app.musicPausedByUser=false;closeControlPanels();stopMusic();stopVoice();
+  app.pending = null; app.touchId = null; app.localPaddle=null;app.musicPausedByUser=false;closeControlPanels();stopMusic();stopVoice();
   oldWs?.close();
   const url = new URL(location.href); url.searchParams.delete('sala'); history.replaceState(null,'',url);
   ui.game.classList.add('hidden'); ui.home.classList.remove('hidden');
@@ -590,7 +604,7 @@ function moveInput(e, force=false) {
   app.inputV={x:(p.x-app.input.x)*1000/delta,y:(p.y-app.input.y)*1000/delta};
   app.prevInputAt=stamp;app.input=p;app.inputMoved=true;
   const now = performance.now();
-  if(force || now-app.sendAt>=33){send({type:'move',x:p.x,y:p.y});app.sendAt=now;}
+  if(force || now-app.sendAt>=22){send({type:'move',x:p.x,y:p.y});app.sendAt=now;}
 }
 ui.arena.addEventListener('pointerdown', e => {
   if (app.touchId !== null) return;
@@ -633,7 +647,8 @@ function roundRect(x,y,w,h,r) {
   const rad = Math.min(r,w/2,h/2);
   ctx.beginPath();ctx.moveTo(x+rad,y);ctx.arcTo(x+w,y,x+w,y+h,rad);ctx.arcTo(x+w,y+h,x,y+h,rad);ctx.arcTo(x,y+h,x,y,rad);ctx.arcTo(x,y,x+w,y,rad);ctx.closePath();
 }
-function drawArena(c) {
+function drawArena(c,bottomTeam=0) {
+  const bottomBlue=bottomTeam===0;
   const base = c.createLinearGradient(0,0,W,H);base.addColorStop(0,'#102d4b');base.addColorStop(.5,'#0b1b37');base.addColorStop(1,'#071b30');
   c.fillStyle=base;c.fillRect(0,0,W,H);
   // Pista geométrica y reflejos.
@@ -641,10 +656,10 @@ function drawArena(c) {
   for(let x=0;x<=W;x+=50){c.beginPath();c.moveTo(x,0);c.lineTo(x,H);c.stroke();}
   for(let y=0;y<=H;y+=50){c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke();}
   const top=c.createRadialGradient(W/2,-60,10,W/2,20,440);
-  top.addColorStop(0,'rgba(254,83,162,.17)');top.addColorStop(1,'rgba(254,83,162,0)');
+  top.addColorStop(0,bottomBlue?'rgba(254,83,162,.17)':'rgba(48,230,255,.15)');top.addColorStop(1,'rgba(254,83,162,0)');
   c.fillStyle=top;c.fillRect(0,0,W,H/2);
   const bottom=c.createRadialGradient(W/2,H+60,10,W/2,H-20,440);
-  bottom.addColorStop(0,'rgba(48,230,255,.15)');bottom.addColorStop(1,'rgba(48,230,255,0)');
+  bottom.addColorStop(0,bottomBlue?'rgba(48,230,255,.15)':'rgba(254,83,162,.17)');bottom.addColorStop(1,'rgba(48,230,255,0)');
   c.fillStyle=bottom;c.fillRect(0,H/2,W,H/2);
   c.shadowBlur=0;
   // Bordes de la pista con aperturas REALES en la portería: sin una línea invisible.
@@ -660,40 +675,68 @@ function drawArena(c) {
   c.beginPath();c.moveTo(13,H/2);c.lineTo(W-13,H/2);c.stroke();
   c.beginPath();c.arc(W/2,H/2,93,0,Math.PI*2);c.stroke();
   c.beginPath();c.arc(W/2,H/2,21,0,Math.PI*2);c.stroke();
-  c.strokeStyle='#ff65b95a';c.lineWidth=3;
+  c.strokeStyle=bottomBlue?'#ff65b95a':'#51e5ff65';c.lineWidth=3;
   c.beginPath();c.arc(W/2,0,136,0,Math.PI);c.stroke();
-  c.strokeStyle='#51e5ff65';c.beginPath();c.arc(W/2,H,136,Math.PI,2*Math.PI);c.stroke();
+  c.strokeStyle=bottomBlue?'#51e5ff65':'#ff65b95a';c.beginPath();c.arc(W/2,H,136,Math.PI,2*Math.PI);c.stroke();
   // Redes: huecos abiertos en los que el disco puede entrar.
   c.fillStyle='rgba(5,6,23,.8)';c.fillRect(left,0,right-left,25);c.fillRect(left,H-25,right-left,25);
-  c.fillStyle='rgba(255,77,170,.12)';c.fillRect(left,0,right-left,32);
-  c.fillStyle='rgba(74,232,255,.15)';c.fillRect(left,H-32,right-left,32);
+  c.fillStyle=bottomBlue?'rgba(255,77,170,.12)':'rgba(74,232,255,.15)';c.fillRect(left,0,right-left,32);
+  c.fillStyle=bottomBlue?'rgba(74,232,255,.15)':'rgba(255,77,170,.12)';c.fillRect(left,H-32,right-left,32);
   c.lineWidth=4;c.shadowBlur=16;
-  c.strokeStyle='#ff65b9';c.shadowColor='#ff65b9';c.beginPath();
+  c.strokeStyle=bottomBlue?'#ff65b9':'#51e5ff';c.shadowColor=c.strokeStyle;c.beginPath();
   c.moveTo(left,0);c.lineTo(left,29);c.moveTo(right,0);c.lineTo(right,29);c.stroke();
-  c.strokeStyle='#51e5ff';c.shadowColor='#51e5ff';c.beginPath();
+  c.strokeStyle=bottomBlue?'#51e5ff':'#ff65b9';c.shadowColor=c.strokeStyle;c.beginPath();
   c.moveTo(left,H);c.lineTo(left,H-29);c.moveTo(right,H);c.lineTo(right,H-29);c.stroke();
   c.shadowBlur=0;
   c.font='900 27px system-ui';c.textAlign='center';c.textBaseline='middle';
-  c.fillStyle='rgba(255,118,184,.13)';c.save();c.translate(W/2,95);c.rotate(Math.PI);c.fillText('RIVAL',0,0);c.restore();
-  c.fillStyle='rgba(86,229,255,.15)';c.fillText('TU ZONA',W/2,H-94);
+  c.fillStyle=bottomBlue?'rgba(255,118,184,.13)':'rgba(86,229,255,.15)';c.save();c.translate(W/2,95);c.rotate(Math.PI);c.fillText('RIVAL',0,0);c.restore();
+  c.fillStyle=bottomBlue?'rgba(86,229,255,.15)':'rgba(255,118,184,.13)';c.fillText('TU ZONA',W/2,H-94);
   // Pequeñas flechas hacia la portería contraria.
   c.fillStyle='rgba(164,202,238,.14)';c.font='40px sans-serif';c.fillText('⌃',W/2,350);
   c.fillText('⌄',W/2,550);
   const glint=.5;
   c.fillStyle=`rgba(92,220,251,${glint*.1})`;c.fillRect(22,H/2+18,4,110);
 }
-function drawPaddle(p, ours, r=PADDLE_R) {
-  const color = ours ? '#51e5ff' : '#ff65b9';
+function drawPaddle(p, team, r=PADDLE_R, name=null, labelWidth=125, lane=null) {
+  const blue = team === 0;
+  const color = teamColor(team);
   ctx.save();ctx.translate(p.x,p.y);
   ctx.shadowColor=color;ctx.shadowBlur=24;
-  ctx.fillStyle=ours?'#22acd7':'#b82a76';ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=blue?'#22acd7':'#b82a76';ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();
   ctx.shadowBlur=0;
-  ctx.strokeStyle=ours?'#8cf1ff':'#ffaad8';ctx.lineWidth=7;ctx.beginPath();ctx.arc(0,0,r-4,0,Math.PI*2);ctx.stroke();
+  ctx.strokeStyle=blue?'#8cf1ff':'#ffaad8';ctx.lineWidth=7;ctx.beginPath();ctx.arc(0,0,r-4,0,Math.PI*2);ctx.stroke();
   const g=ctx.createRadialGradient(-12,-14,1,0,0,r);
-  if(ours){g.addColorStop(0,'#c4ffff');g.addColorStop(.25,'#5cdaf4');g.addColorStop(.65,'#167cae');g.addColorStop(1,'#073152');}
+  if(blue){g.addColorStop(0,'#c4ffff');g.addColorStop(.25,'#5cdaf4');g.addColorStop(.65,'#167cae');g.addColorStop(1,'#073152');}
   else{g.addColorStop(0,'#ffd4ed');g.addColorStop(.25,'#ff79b8');g.addColorStop(.65,'#a32873');g.addColorStop(1,'#48143f');}
   ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r-11,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='#ffffff3a';ctx.lineWidth=2;ctx.beginPath();ctx.arc(-7,-7,13,Math.PI,Math.PI*1.6);ctx.stroke();
+  ctx.restore();
+  if(name)drawNameTag(p,r,name,team,labelWidth,lane);
+}
+/** Names for team matches: drawn in screen-space, never upside down on pink devices. */
+function drawNameTag(p,r,name,team,widthCap=125,lane=null){
+  const full=String(name||'').trim();
+  if(!full)return;
+  ctx.save();
+  ctx.font='800 13px system-ui, sans-serif';
+  const maxText=Math.min(widthCap-16,158);
+  const glyphs=Array.from(full); // Supports emoji names, without splitting surrogate pairs.
+  let caption=full;
+  if(ctx.measureText(caption).width>maxText){
+    while(glyphs.length>1&&ctx.measureText(glyphs.join('')+'…').width>maxText)glyphs.pop();
+    caption=glyphs.join('')+'…';
+  }
+  const w=Math.max(32,Math.min(widthCap,ctx.measureText(caption).width+17));
+  const [left,right]=lane||[0,W];
+  // Keep labels strictly within their team's lane, especially in 4 vs. 4.
+  const cx=Math.max(left+w/2+2,Math.min(right-w/2-2,p.x));
+  const cy=Math.max(16,Math.min(H-16,p.y-r-20));
+  const x=cx-w/2,y=cy-13;
+  ctx.fillStyle='rgba(4,13,31,.91)';
+  ctx.strokeStyle=teamColor(team);ctx.lineWidth=1.3;
+  ctx.beginPath();ctx.roundRect(x,y,w,26,9);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#f3f9ff';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(caption,cx,cy);
   ctx.restore();
 }
 function drawPuck(p) {
@@ -714,8 +757,10 @@ function drawPuck(p) {
   ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,R-8,0,Math.PI*2);ctx.fill();
   ctx.restore();
 }
-const backdrop=document.createElement('canvas');backdrop.width=W;backdrop.height=H;
-drawArena(backdrop.getContext('2d'));
+const backdrops=[0,1].map(side=>{
+  const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;
+  drawArena(canvas.getContext('2d'),side);return canvas;
+});
 function drawPower(s,t){
   if(!s.power)return;
   const p=orient(s.power),icons={turbo:'⚡',giantPuck:'●',giantPaddle:'⬡'};
@@ -787,37 +832,55 @@ function draw(t){
   }
   requestAnimationFrame(draw);
   ctx.setTransform(ui.arena.width/W,0,0,ui.arena.height/H,0,0);
-  ctx.drawImage(backdrop,0,0,W,H);
+  ctx.drawImage(backdrops[sideFor(app.state)===1?1:0],0,0,W,H);
   const s=app.state;
-  if(!s){drawPaddle({x:W/2,y:127},false);drawPuck({x:W/2,y:H/2,r:PUCK_R});drawPaddle({x:W/2,y:H-127},true);return;}
+  if(!s){drawPaddle({x:W/2,y:127},1);drawPuck({x:W/2,y:H/2,r:PUCK_R});drawPaddle({x:W/2,y:H-127},0);return;}
   if(keys.size&&isPlaying(s)){
     const vx=(keys.has('ArrowRight')||keys.has('KeyD')?1:0)-(keys.has('ArrowLeft')||keys.has('KeyA')?1:0);
     const vy=(keys.has('ArrowDown')||keys.has('KeyS')?1:0)-(keys.has('ArrowUp')||keys.has('KeyW')?1:0);
     const b=ownBounds();app.input.x=Math.max(b.lo,Math.min(b.hi,app.input.x+vx*900*dt));
     app.input.y=Math.max(H/2+42,Math.min(H-57,app.input.y+vy*900*dt));
     app.inputV={x:vx*900,y:vy*900};app.inputMoved=true;
-    if(t-app.sendAt>33){send({type:'move',...app.input});app.sendAt=t;}
+    if(t-app.sendAt>22){send({type:'move',...app.input});app.sendAt=t;}
+  }
+  // El último evento táctil también se envía si Android agrupa eventos.
+  // Mantiene la entrada fluida sin saturar el servidor con cada evento táctil.
+  if(app.touchId!==null && app.inputMoved && t-app.sendAt>=22 && isPlaying(s)){
+    send({type:'move',...app.input});app.sendAt=t;
   }
   app.puckDraw=samplePuck(t,s.phase)||{...orient(s.puck),vx:0,vy:0,r:s.puck.r||PUCK_R};
   app.renderPhase=s.phase;
   drawPower(s,t);
   const localIndex=s.settings?.mode==='tournament'?s.activeSeats.indexOf(app.seat):app.seat;
   const side=sideFor(s);
+  const namesOnPaddles=isTeamMatch(s);
+  const laneWidth=s.settings?.mode==='teams'?105:170;
   const displayed=s.paddles.map((pad,i)=>({i,p:orient(pad),mine:i===localIndex,
-    friendly:s.settings?.mode==='duo'?((i<2)===(localIndex<2)):s.settings?.mode==='teams'?((i<4)===(localIndex<4)):i===localIndex,
+    team:paddleTeam(s,i),name:namesOnPaddles?s.players[i]?.name:null,
+    lane:namesOnPaddles?[(i%(s.settings.mode==='teams'?4:2))*W/(s.settings.mode==='teams'?4:2),
+      ((i%(s.settings.mode==='teams'?4:2))+1)*W/(s.settings.mode==='teams'?4:2)]:null,
     r:s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:PADDLE_R}));
-  for(const pad of displayed.filter(p=>!p.mine))drawPaddle(pad.p,pad.friendly,pad.r);
+  for(const pad of displayed.filter(p=>!p.mine))drawPaddle(pad.p,pad.team,pad.r,pad.name,laneWidth,pad.lane);
   drawPuck(app.puckDraw);
   drawGoalFx(t);
   if(localIndex>=0){
     const me=displayed.find(p=>p.mine);
-    // La paleta visual no se teletransporta hasta el dedo: la separacion de
-    // su posicion AUTORITATIVA es como maximo 18 px. De otro modo el disco
-    // pareceria atravesar una paleta que el servidor todavia no ha movido.
+    // PREDICCIÓN VISUAL LOCAL: la paleta no puede depender de snapshots
+    // del servidor a 20 Hz. Esos datos llegan a saltos por la red y causan
+    // sensación de arrastre en Android. Esta predicción NO altera la pelota.
+    // El servidor conserva la física autoritativa con colisiones continuas.
     const requested=app.inputMoved?app.input:me.p;
-    const dx=requested.x-me.p.x,dy=requested.y-me.p.y,dist=Math.hypot(dx,dy);
-    const lead=dist>0?Math.min(18,dist)/dist:0;
-    drawPaddle({x:me.p.x+dx*lead,y:me.p.y+dy*lead},true,me.r);
+    if(!app.localPaddle)app.localPaddle={...me.p};
+    const visual=app.localPaddle;
+    const dx=requested.x-visual.x,dy=requested.y-visual.y;
+    const distance=Math.hypot(dx,dy);
+    // Seguimiento independiente del 20 Hz de red. Máximo 4.200 px/s,
+    // ligeramente superior al límite del servidor de 3.600 px/s.
+    const maxDelta=4200*dt;
+    if(distance>0.001){const scale=Math.min(1,maxDelta/distance);visual.x+=dx*scale;visual.y+=dy*scale;}
+    // Sin arrastres ni reposicionamientos bruscos: al soltar el dedo,
+    // el dato autoritativo termina de alcanzar el objetivo naturalmente.
+    drawPaddle(visual,me.team,me.r,me.name,laneWidth,me.lane);
   }
   drawParticles(dt);
   return;

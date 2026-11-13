@@ -15,7 +15,7 @@ const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'c
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname==='/health')return respond({ok:true,release:'4.3-bot-physics',platform:'cloudflare'});
+    if(url.pathname==='/health')return respond({ok:true,release:'4.5-team-colors-nicknames',platform:'cloudflare'});
     if(url.pathname==='/ws'){
       if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
       const origin=request.headers.get('Origin');

@@ -4,7 +4,10 @@ export const PADDLE_R = 37, PUCK_R = 16, GOAL_HALF = 94;
 export const WIN_SCORE = 7, TICK_RATE = 60, SEND_RATE = 20;
 // El control persigue el dedo rápido, pero su energía de impacto está limitada por separado.
 // El limite maximo es tambien una proteccion visual para la interpolacion de 20 Hz.
-const MAX_PADDLE_SPEED = 2100, MAX_IMPACT_SPEED = 1000;
+// Un control lento se nota mucho con latencia de móvil. El seguimiento humano
+// es rápido; el impulso transmitido al disco continúa limitado aparte.
+export const MAX_PADDLE_SPEED = 3600;
+const MAX_IMPACT_SPEED = 1000;
 export const MAX_PUCK_SPEED = 1600;
 const BOT_CONFIG = Object.freeze({
   easy:{speed:540,delay:290,error:64},
@@ -105,39 +108,57 @@ export function movePaddles(room, dt) {
     p.vy=clamp((p.y-p.prevY)/dt,-MAX_PADDLE_SPEED,MAX_PADDLE_SPEED);
   });
 }
-/** Control de IA del rival. No cambia la fisica ni puede saltarse los limites. */
-export function updateBot(room,now=Date.now()){
+/**
+ * Bot: defender + atacar son comportamientos distintos.
+ * Antes apuntaba siempre a quedar a ~67 px *por encima* del puck: el contacto
+ * necesita 53 px (paddle 37 + disco 16), así que podía seguirlo sin pegar.
+ * El bot ahora intercepta el trayecto y, cuando está en zona de tiro, atraviesa
+ * ligeramente la línea de contacto. El motor de colisiones resuelve el choque.
+ * Sin teletransportarse ni modificar directamente la velocidad de la pelota.
+ */
+export function updateBot(room,now=Date.now()) {
   if(room.settings.mode!=='bot'||!room.bot)return;
-  const profile=BOT_CONFIG[room.settings.botDifficulty]||BOT_CONFIG.hard;
+  const cfg=BOT_CONFIG[room.settings.botDifficulty]||BOT_CONFIG.hard;
   if(now<(room.bot.thinkAt||0))return;
-  room.bot.thinkAt=now+profile.delay;
+  room.bot.thinkAt=now+cfg.delay;
   room.bot.iteration=(room.bot.iteration||0)+1;
-  const p=room.puck, pad=room.paddles[1], pr=puckRadius(room);
-  const wallMin=pr, wallMax=W-pr, span=wallMax-wallMin;
-  const interceptY=210;
-  let targetX=W/2;
-  if(p.vy< -45){
-    // Reflejar la prediccion en paredes, en lugar de atravesarlas.
-    const t=clamp((p.y-interceptY)/(-p.vy),0,2.2);
-    const raw=p.x+p.vx*t-wallMin;
-    const wrapped=((raw%(2*span))+(2*span))%(2*span);
-    targetX=wallMin+(wrapped<=span?wrapped:2*span-wrapped);
-  }else if(p.y<H/2){targetX=p.x;}
-  // Error estable entre decisiones, no jitter a 60 fps.
-  const seed=Math.sin(room.bot.iteration*127.1+room.code.length*31.73)*43758.5453;
-  const error=((seed-Math.floor(seed))*2-1)*profile.error;
-  targetX+=error;
-  // Defender la zona alta: atacar desde ARRIBA de la pelota para enviarla
-  // hacia abajo, nunca cruzar a la mitad del rival.
-  let targetY=150;
-  if(p.y<420 && p.y>135 && p.vy<180){
-    targetY=clamp(p.y-pr-PADDLE_R-14,95,310);
-  }
-  // En dificultad facil, dejar margen de reaccion en el centro.
+  const puck=room.puck, bot=room.paddles[1], pr=puckRadius(room);
   const bounds=boundsForPaddle(room,1);
-  room.bot.aimX=clamp(targetX,bounds.minX,bounds.maxX);
-  room.bot.aimY=clamp(targetY,bounds.minY,bounds.maxY);
-  pad.tx=room.bot.aimX;pad.ty=room.bot.aimY;
+  const left=pr,right=W-pr,span=right-left;
+  const projectedX=seconds=>{
+    const x=puck.x+puck.vx*clamp(seconds,0,1.5)-left;
+    const wrapped=((x%(2*span))+(2*span))%(2*span);
+    return left+(wrapped<=span?wrapped:2*span-wrapped);
+  };
+  // Calcular dónde entrará el disco en la zona de ataque (Y ~= 260).
+  const coming= puck.vy < -45;
+  const inCourt=puck.y<H/2+35;
+  const interceptSeconds=coming?Math.max(0,(puck.y-265)/-puck.vy):0;
+  const predictX=inCourt ? projectedX(interceptSeconds) : W/2;
+  const seed=Math.sin(room.bot.iteration*127.1+room.code.length*31.73)*43758.5453;
+  const error=((seed-Math.floor(seed))*2-1)*cfg.error;
+  let x=predictX+error;
+  let y=145;
+  // El bot prepara la intercepción, no persigue la pelota desde el fondo.
+  if(inCourt && puck.y>115 && puck.y<415 && puck.vy<235){
+    const close=puck.y<335 || Math.abs(bot.x-predictX)<85;
+    if(close){
+      // Objetivo deliberadamente DENTRO del radio de contacto para atacar.
+      // La paleta debe acercarse desde arriba; así el rebote es hacia abajo.
+      const strikeGap=(pr+paddleRadius(room,1))*0.51;
+      y=puck.y-strikeGap;
+      // Cuando el puck está cerca, apuntar a su posición actual, no a un
+      // intercepto lejano que haga esquivarlo en el último instante.
+      if(puck.y<325)x=puck.x+error*0.35;
+    }else{
+      y=195;
+    }
+  }else if(inCourt && puck.y<=115){
+    // Defender la boca cuando el disco está pegado al borde superior.
+    y=bounds.minY+8;x=puck.x+error*.25;
+  }
+  bot.tx=room.bot.aimX=clamp(x,bounds.minX,bounds.maxX);
+  bot.ty=room.bot.aimY=clamp(y,bounds.minY,bounds.maxY);
 }
 
 // Stable collision response. Geometry uses exact swept-circle time-of-impact (TOI),
