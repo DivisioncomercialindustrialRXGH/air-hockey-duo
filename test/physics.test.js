@@ -100,3 +100,45 @@ test('puck and paddle remain finite after repeated high-speed diagonal inputs',(
     if(goal!==null)r.puck={x:250,y:450,vx:420,vy:730};
   }
 });
+
+test('continuous collision detects puck crossing entire mallet in one physics frame',()=>{
+  const r=makeRoom('SWEEP1',{powers:false,puckSize:'S'});
+  Object.assign(r.paddles[0],{x:250,y:755,prevX:250,prevY:755,tx:250,ty:755});
+  r.puck={x:250,y:640,vx:0,vy:7500};
+  const scored=stepPuck(r,1/60);
+  assert.equal(scored,null);
+  assert.equal(r.lastEvent.type,'hit');
+  assert.ok(r.puck.vy<0,`debe rebotar hacia el rival, vy=${r.puck.vy}`);
+  assert.ok(r.puck.y<705,`puck no atraviesa la paleta, y=${r.puck.y}`);
+});
+
+test('swept collisions work for all disc sizes with a fast moving mallet',()=>{
+  for(const puckSize of ['S','M','L']){
+    const r=makeRoom('FAST99',{powers:false,puckSize});
+    Object.assign(r.paddles[0],{x:200,y:780,prevX:200,prevY:780,tx:200,ty:650});
+    r.puck={x:200,y:700,vx:0,vy:150};
+    movePaddles(r,1/60);
+    assert.equal(stepPuck(r,1/60),null);
+    assert.equal(r.lastEvent.type,'hit',`tamaño ${puckSize}`);
+    assert.ok(r.puck.vy<0,`debe salir hacia adelante, tamaño ${puckSize}`);
+    assert.ok(Math.hypot(r.puck.vx,r.puck.vy)<1601,`velocidad limitada, tamaño ${puckSize}`);
+  }
+});
+
+test('bot settings are validated and its paddles are bound by human physics limits',async()=>{
+  const {updateBot,sanitizeSettings,boundsForPaddle}=await import('../src/physics.js');
+  assert.equal(sanitizeSettings({mode:'bot',botDifficulty:'god'}).botDifficulty,'god');
+  assert.equal(sanitizeSettings({mode:'bot',botDifficulty:'hacker'}).botDifficulty,'hard');
+  assert.equal(sanitizeSettings({mode:'invalid'}).mode,'duel');
+  for(const difficulty of ['easy','hard','god']){
+    const r=makeRoom('BOT777',{mode:'bot',botDifficulty:difficulty,powers:false});
+    const x0=r.paddles[1].x,y0=r.paddles[1].y;
+    r.puck={x:465,y:300,vx:500,vy:-650};
+    updateBot(r,Date.now());movePaddles(r,1/60);
+    assert.ok(r.paddles[1].x>=boundsForPaddle(r,1).minX);
+    assert.ok(r.paddles[1].x<=boundsForPaddle(r,1).maxX);
+    assert.ok(r.paddles[1].y>=boundsForPaddle(r,1).minY);
+    assert.ok(r.paddles[1].y<=boundsForPaddle(r,1).maxY);
+    assert.ok(Math.hypot(r.paddles[1].x-x0,r.paddles[1].y-y0)<35,'sin teletransportacion');
+  }
+});

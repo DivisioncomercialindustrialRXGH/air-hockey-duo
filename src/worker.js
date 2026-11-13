@@ -2,7 +2,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   W,H,TICK_RATE,SEND_RATE,PADDLE_R,clamp,makeRoom,countdown,movePaddles,stepPuck,
-  puckRadius,paddleRadius,updatePower,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle
+  puckRadius,paddleRadius,updatePower,updateBot,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle
 } from './physics.js';
 import {
   initializeTournament,prepareTournamentMatch,finishTournamentMatch,leaderboard
@@ -15,7 +15,7 @@ const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'c
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname==='/health')return respond({ok:true,release:'4.2',platform:'cloudflare'});
+    if(url.pathname==='/health')return respond({ok:true,release:'4.3-bot-physics',platform:'cloudflare'});
     if(url.pathname==='/ws'){
       if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
       const origin=request.headers.get('Origin');
@@ -61,14 +61,14 @@ export class HockeyHub extends DurableObject {
   activeConnected(room){
     if(room.settings.mode==='tournament'&&room.phase==='tournament_wait')return room.players.some(p=>online(p?.ws));
     const required=room.settings.mode==='tournament'?room.activeSeats:room.players.map((_,i)=>i);
-    return required.length>=2&&required.every(i=>online(room.players[i]?.ws));
+    return required.length>=2&&required.every(i=>room.players[i]?.bot===true||online(room.players[i]?.ws));
   }
-  full(room){return room.players.every(p=>p&&online(p.ws));}
+  full(room){return room.players.every(p=>p&&(p.bot===true||online(p.ws)));}
   notify(room){
     const stamp=Date.now();
     const state={
       type:'state',code:room.code,phase:room.phase,
-      players:room.players.map(p=>p?{name:p.name,connected:online(p.ws)}:null),
+      players:room.players.map(p=>p?{name:p.name,connected:p.bot===true||online(p.ws),bot:p.bot===true}:null),
       scores:room.scores,paddles:room.paddles.map(p=>({x:p.x,y:p.y})),
       puck:{...room.puck,r:puckRadius(room)},settings:room.settings,
       remainingMs:room.remainingMs,power:room.power,effect:room.effect,
@@ -91,7 +91,7 @@ export class HockeyHub extends DurableObject {
   }
   async persist(){
     const snap=[...this.rooms.entries()].map(([code,r])=>[code,{
-      ...r,players:r.players.map(p=>p?{name:p.name,token:p.token,disconnectedAt:p.disconnectedAt}:null),
+      ...r,players:r.players.map(p=>p?{name:p.name,token:p.token,disconnectedAt:p.disconnectedAt,bot:p.bot===true}:null),
       voiceReady:[]
     }]);
     await this.ctx.storage.put('rooms',snap);
@@ -100,7 +100,7 @@ export class HockeyHub extends DurableObject {
     const now=Date.now();
     for(const [code,r] of this.rooms){
       r.players.forEach((p,i)=>{
-        if(p&&!online(p.ws)&&p.disconnectedAt&&now-p.disconnectedAt>SEAT_TTL&&r.settings.mode!=='tournament')r.players[i]=null;
+        if(p&&!p.bot&&!online(p.ws)&&p.disconnectedAt&&now-p.disconnectedAt>SEAT_TTL&&r.settings.mode!=='tournament')r.players[i]=null;
       });
       if(!r.players.some(p=>online(p?.ws))&&now-r.lastUsed>ROOM_TTL)this.rooms.delete(code);
     }
@@ -152,7 +152,7 @@ export class HockeyHub extends DurableObject {
       }
       if(r.phase==='countdown'&&now>=r.phaseEnd){r.phase='playing';changed=true;}
       if(r.phase==='goal'&&now>=r.phaseEnd){countdown(r,1-r.goalBy);changed=true;}
-      if(['playing','countdown','overtime'].includes(r.phase))movePaddles(r,dt);
+      if(['playing','countdown','overtime'].includes(r.phase)){updateBot(r,now);movePaddles(r,dt);}
       if(['playing','overtime'].includes(r.phase)){
         r.elapsedMs+=dt*1000;
         if(r.remainingMs!==null&&r.remainingMs>0){
@@ -181,6 +181,7 @@ export class HockeyHub extends DurableObject {
     if(ws.deserializeAttachment()?.roomCode)return this.send(ws,{type:'error',message:'Ya estás en otra sala.'});
     const tok=typeof msg.token==='string'?msg.token:'';
     let seat=tok.length===32?r.players.findIndex(p=>p?.token===tok):-1;
+    if(seat<0 && r.settings.mode==='bot' && msg.isCreator!==true)return this.send(ws,{type:'error',message:'Esta es una partida individual contra un bot.'});
     if(seat<0 && r.settings.mode==='tournament'&&r.tournament?.started)return this.send(ws,{type:'error',message:'El torneo ya comenzó. No admite nuevos jugadores.'});
     if(seat<0){
       const requested=msg.team==='blue'?0:msg.team==='pink'?1:-1;
@@ -224,7 +225,8 @@ export class HockeyHub extends DurableObject {
       if(ws.deserializeAttachment()?.roomCode)return;
       this.prune();if(this.rooms.size>=MAX_ROOMS)return this.send(ws,{type:'error',message:'Se alcanzó el límite temporal de salas.'});
       const code=this.newCode();const r=makeRoom(code,sanitizeSettings(msg.settings||{}));r.chat=[];r.voiceReady=Array(r.players.length).fill(false);
-      this.rooms.set(code,r);await this.join(ws,{code,name:msg.name,team:msg.team});return;
+      if(r.settings.mode==='bot')r.players[1]={name:({easy:'🤖 Bot Fácil',hard:'🤖 Bot Difícil',god:'🤖 Bot Dios'})[r.settings.botDifficulty],token:'',ws:null,disconnectedAt:0,bot:true};
+      this.rooms.set(code,r);await this.join(ws,{code,name:msg.name,team:msg.team,isCreator:true});return;
     }
     if(msg.type==='join')return this.join(ws,msg);
     const a=ws.deserializeAttachment(),r=this.rooms.get(a?.roomCode),p=r?.players?.[a?.seat];

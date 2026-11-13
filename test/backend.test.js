@@ -199,3 +199,47 @@ test('4 vs 4 admits team preference but not seat overflow',async()=>{
   assert.equal(hub.rooms.get(code).phase,'countdown');
   clearInterval(hub.timer);
 });
+
+test('solo player starts immediately against bot, plays, scores and rematches',async()=>{
+  const ctx=new Context();const hub=new HockeyHub(ctx,{});await ctx.ready;
+  const a=new Socket(), intruder=new Socket();ctx.sockets.push(a,intruder);
+  await send(hub,a,{type:'create',name:'Humano',settings:{mode:'bot',botDifficulty:'god',maxScore:3,powers:false}});
+  const joined=a.ofType('joined')[0];
+  assert.equal(joined.seat,0);
+  assert.equal(joined.settings.botDifficulty,'god');
+  const r=hub.rooms.get(joined.code);
+  assert.equal(r.phase,'countdown','debe comenzar sin segundo telefono');
+  assert.equal(r.players[1].bot,true);
+  assert.equal(r.players[1].name,'🤖 Bot Dios');
+  assert.equal(a.ofType('state').at(-1).players[1].connected,true);
+  await send(hub,intruder,{type:'join',name:'Intruso',code:joined.code});
+  assert.match(intruder.ofType('error')[0].message,/individual/i);
+  r.phase='playing';r.puck={x:250,y:280,vx:180,vy:-550};
+  const startX=r.paddles[1].x;
+  for(let i=0;i<30;i++)hub.tick();
+  assert.notEqual(r.paddles[1].x,startX,'IA se mueve por si sola');
+  r.scores[0]=2;hub.goal(r,0);
+  assert.equal(r.phase,'gameover');
+  await send(hub,a,{type:'rematch'});
+  assert.equal(r.phase,'countdown');assert.deepEqual(r.scores,[0,0]);
+  clearInterval(hub.timer);hub.timer=null;
+  await hub.persist();
+  const after=new Context(ctx.data,[a]);const recovered=new HockeyHub(after,{});await after.ready;
+  const rr=recovered.rooms.get(joined.code);
+  assert.equal(rr.players[1].bot,true,'el bot sobrevive hibernacion');
+  assert.equal(rr.players[0].ws,a,'el humano conserva su asiento');
+  clearInterval(recovered.timer);
+});
+
+test('bot difficulties differ in response speed and accuracy without special collision physics',async()=>{
+  const {makeRoom,updateBot,movePaddles}=await import('../src/physics.js');
+  const motions=[];
+  for(const difficulty of ['easy','hard','god']){
+    const r=makeRoom('AI2222',{mode:'bot',botDifficulty:difficulty,powers:false});
+    r.puck={x:440,y:280,vx:0,vy:-400};
+    const before=r.paddles[1].x;
+    updateBot(r,Date.now());movePaddles(r,1/60);
+    motions.push(Math.abs(r.paddles[1].x-before));
+  }
+  assert.ok(motions[0]<motions[1]&&motions[1]<motions[2],`facil/dificil/dios respetan rapidez: ${motions}`);
+});

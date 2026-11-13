@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Hockey DUO" />
   <link rel="apple-touch-icon" href="/icon-180.png" />
-  <meta name="description" content="Air Hockey DUO: duelo, 2 vs. 2, 4 vs. 4 y torneos entre celulares." />
+  <meta name="description" content="Air Hockey DUO: duelo, modo contra bot fácil/difícil/dios, 2 vs. 2, 4 vs. 4 y torneos." />
   <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -37,8 +37,8 @@
         </div>
         <div class="eyebrow"><span class="eyebrow-star">✦</span> EL CLÁSICO, AHORA EN VARIOS CELULARES</div>
         <h1>¡QUE GANE<br />EL <em>MEJOR!</em></h1>
-        <p>Un disco. Tus amigos. Una rivalidad épica. Duelo, equipos 2 vs. 2 y torneos eliminatorios, desde cada celular.</p>
-        <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>👥 2 vs. 2</span><span>🏆 Torneos</span><span>🔗 Sala privada</span><span>🎁 Poderes sorpresa</span></div>
+        <p>Un disco. Tus amigos o la máquina. Entrena contra el bot, compite en equipos y gana torneos.</p>
+        <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>👥 2 vs. 2</span><span>🏆 Torneos</span><span>🤖 Contra bot</span><span>🔗 Sala privada</span><span>🎁 Poderes sorpresa</span></div>
       </section>
 
       <section class="home-panel" aria-label="Iniciar partida">
@@ -48,10 +48,20 @@
         <label class="input-label" for="game-mode-select">MODO DE JUEGO</label>
         <select class="select-input mode-input" id="game-mode-select">
           <option value="duel" selected>🏒 Duelo · 1 vs. 1</option>
+          <option value="bot">🤖 Contra el bot · jugar solo</option>
           <option value="duo">👫 Equipos · 2 vs. 2</option>
           <option value="teams">⚡ Equipos · 4 vs. 4</option>
           <option value="tournament">🏆 Torneo eliminatorio</option>
         </select>
+        <div id="bot-difficulty-option" class="team-option hidden">
+          <label class="input-label" for="bot-difficulty">DIFICULTAD DEL BOT</label>
+          <select class="select-input" id="bot-difficulty">
+            <option value="easy">🙂 Fácil · para aprender</option>
+            <option value="hard" selected>🔥 Difícil · todo un reto</option>
+            <option value="god">👑 Dios · precisión máxima</option>
+          </select>
+          <p class="option-help">La máquina usa la misma física y velocidad limitada. No hace trampas.</p>
+        </div>
         <div id="create-team-option" class="team-option hidden">
           <label class="input-label" for="create-team">TU EQUIPO</label>
           <select class="select-input" id="create-team"><option value="blue">🔵 Azul</option><option value="pink">🩷 Rosado</option></select>

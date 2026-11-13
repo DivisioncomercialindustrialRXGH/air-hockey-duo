@@ -17,7 +17,7 @@ const ui = {
   time: $('#match-time'), target: $('#match-score'), powers: $('#powers-enabled'),
   timer: $('#game-time'), goalLabel: $('#game-target'), activePower: $('#active-power'),
   install: $('#install-btn'), installHelp: $('#install-help'),
-  mode: $('#game-mode-select'), tournamentSize: $('#tournament-size'), tournamentOption: $('#tournament-option'), createTeamOption: $('#create-team-option'), createTeam: $('#create-team'), joinTeam: $('#join-team'),
+  mode: $('#game-mode-select'), botDifficulty: $('#bot-difficulty'), botDifficultyOption: $('#bot-difficulty-option'), tournamentSize: $('#tournament-size'), tournamentOption: $('#tournament-option'), createTeamOption: $('#create-team-option'), createTeam: $('#create-team'), joinTeam: $('#join-team'),
   toolbarMode: $('#toolbar-mode'), playersStatus: $('#players-status'), playersStatusText: $('#players-status-text'), infoButton: $('#info-toggle'), rankingButton: $('#ranking-toggle'), tournamentPanel: $('#tournament-panel'),
   tournamentRanking: $('#tournament-ranking'), tournamentRound: $('#tournament-round'),
   audioPanel: $('#audio-panel'), audioClose: $('#audio-close'), infoClose: $('#info-close'), rankingClose: $('#ranking-close'), roomMusic: $('#room-music'), musicVolume: $('#music-volume'),
@@ -46,6 +46,8 @@ ui.playerName.value = app.name;
 if(roomFromUrl && /^[A-Z0-9]{6}$/.test(roomFromUrl)){ui.roomCode.value=roomFromUrl;}
 function updateModeFields(){
   ui.tournamentOption.classList.toggle('hidden',ui.mode.value!=='tournament');
+  ui.botDifficultyOption.classList.toggle('hidden',ui.mode.value!=='bot');
+  ui.create.innerHTML=ui.mode.value==='bot'?'<span class="button-icon">🤖</span> JUGAR CONTRA EL BOT <span class="button-arrow">→</span>':'<span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span>'; 
   ui.createTeamOption.classList.toggle('hidden',!['duo','teams'].includes(ui.mode.value));
 }
 ui.mode.addEventListener('change',updateModeFields);
@@ -124,10 +126,10 @@ function createFromInput() {
   queue({type:'create',name:nameFor('Jugador 1'),team:ui.createTeam.value,settings:{
     maxScore:Number(ui.target.value),timeLimit:Number(ui.time.value),
     puckSize:document.querySelector('input[name="puck-size"]:checked')?.value || 'M',
-    powers:ui.powers.checked,mode:ui.mode.value,tournamentSize:Number(ui.tournamentSize.value)
+    powers:ui.powers.checked,mode:ui.mode.value,botDifficulty:ui.botDifficulty.value,tournamentSize:Number(ui.tournamentSize.value)
   }});
   ui.create.textContent = 'CREANDO SALA...';
-  setTimeout(() => { ui.create.innerHTML = '<span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span>'; }, 1600);
+  setTimeout(updateModeFields,1600);
 }
 function joinFromInput() {
   unlockAudio(); ui.error.textContent = '';
@@ -142,8 +144,12 @@ function handleMessage(msg) {
   if (msg.type === 'error') { showError(msg.message || 'Ha ocurrido un error.'); return; }
   if (msg.type === 'joined') {
     app.room = msg.code; app.seat = msg.seat; app.token = msg.token;
-    app.musicPausedByUser=false; app.musicRequested=false; ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO'})[msg.settings?.mode]||'DUELO';
+    app.musicPausedByUser=false; app.musicRequested=false; ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[msg.settings?.mode]||'DUELO';
     ui.voiceButton.disabled= !['duel','duo'].includes(msg.settings?.mode);
+    ui.voiceButton.classList.toggle('hidden',msg.settings?.mode==='bot');
+    ui.chatToggle.classList.toggle('hidden',msg.settings?.mode==='bot');
+    ui.share.classList.toggle('hidden',msg.settings?.mode==='bot');
+    ui.copy.classList.toggle('hidden',msg.settings?.mode==='bot');
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
@@ -153,7 +159,7 @@ function handleMessage(msg) {
     storage.setItem('ah_token_' + msg.code, msg.token);
     const url = new URL(location.href); url.searchParams.set('sala', msg.code); history.replaceState(null,'',url);
     ui.home.classList.add('hidden'); ui.game.classList.remove('hidden');
-    ui.toolbarCode.textContent = msg.code;
+    ui.toolbarCode.textContent = msg.settings?.mode==='bot'?'SOLO':msg.code;
     ui.inviteCode.textContent = msg.code;
     ui.gameOverlay.classList.remove('hidden');
     ui.hint.textContent = 'Desliza para golpear · ¡Atrapa los poderes!';
@@ -251,8 +257,8 @@ function updateRanking(s){
 function updateUI(){
   const s=app.state;if(!s)return;
   const mine=sideFor(s),view=mine===-1?0:mine,other=1-view;
-  const formats={duel:'DUELO 1 vs 1',duo:'EQUIPOS 2 vs 2',teams:'EQUIPOS 4 vs 4',tournament:'TORNEO'};
-  ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO'})[s.settings?.mode]||'DUELO';
+  const formats={duel:'DUELO 1 vs 1',duo:'EQUIPOS 2 vs 2',teams:'EQUIPOS 4 vs 4',tournament:'TORNEO',bot:'ENTRENAMIENTO VS BOT'};
+  ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[s.settings?.mode]||'DUELO';
   ui.goalLabel.textContent=`A ${s.settings?.maxScore||7} GOLES · DISCO ${s.settings?.puckSize||'M'}`;
   const time=s.remainingMs;
   ui.timer.classList.toggle('overtime',s.phase==='overtime');
@@ -274,7 +280,7 @@ function updateUI(){
   const show=!['playing','overtime'].includes(s.phase)||mine===-1;
   ui.gameOverlay.classList.toggle('hidden',!show);
   ui.gameOverlay.classList.toggle('transparent',['countdown','goal','tournament_wait'].includes(s.phase));
-  ui.invite.classList.toggle('hidden',!['waiting','paused'].includes(s.phase));
+  ui.invite.classList.toggle('hidden',s.settings?.mode==='bot'||!['waiting','paused'].includes(s.phase));
   ui.rematch.classList.toggle('hidden',s.phase!=='gameover');
   const seconds=Math.max(1,Math.ceil((s.phaseEnd-(s.serverNow+performance.now()-app.lastStateAt))/1000));
   ui.overlayTitle.style.color='';
@@ -297,7 +303,7 @@ function updateUI(){
     ui.overlayIcon.textContent='🏆';ui.overlayTitle.textContent='¡CAMPEÓN!';ui.overlayDesc.textContent=`${champion} ganó el torneo. Revisa la clasificación final.`;
   }else if(s.phase==='gameover'){
     ui.overlayIcon.textContent=s.winner===view?'★':'⚡';
-    ui.overlayTitle.textContent=s.winner===view?'¡GANARON!':'¡BUEN DUELO!';
+    ui.overlayTitle.textContent=s.settings?.mode==='bot'?(s.winner===view?'¡LE GANASTE AL BOT!':'¡EL BOT GANÓ!'):(s.winner===view?'¡GANARON!':'¡BUEN DUELO!');
     ui.overlayTitle.style.color=s.winner===view?'#51e5ff':'#ff9cb6';
     ui.overlayDesc.textContent=s.winner===view?'¡Qué partidazo! ¿Otra ronda?':'¿Revancha?';
   }else if(mine===-1){
@@ -805,9 +811,13 @@ function draw(t){
   drawGoalFx(t);
   if(localIndex>=0){
     const me=displayed.find(p=>p.mine);
+    // La paleta visual no se teletransporta hasta el dedo: la separacion de
+    // su posicion AUTORITATIVA es como maximo 18 px. De otro modo el disco
+    // pareceria atravesar una paleta que el servidor todavia no ha movido.
     const requested=app.inputMoved?app.input:me.p;
-    // La paleta se sigue viendo bajo el dedo, sin bloquearse por un pointer cancelado.
-    drawPaddle(requested,true,me.r);
+    const dx=requested.x-me.p.x,dy=requested.y-me.p.y,dist=Math.hypot(dx,dy);
+    const lead=dist>0?Math.min(18,dist)/dist:0;
+    drawPaddle({x:me.p.x+dx*lead,y:me.p.y+dy*lead},true,me.r);
   }
   drawParticles(dt);
   return;
