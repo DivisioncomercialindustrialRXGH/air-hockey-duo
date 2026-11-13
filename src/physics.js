@@ -177,7 +177,9 @@ export function updateBot(room,now=Date.now()) {
   };
   const approaching=puck.vy< -60;
   const inZone=puck.y>75&&puck.y<H/2+35;
-  const interceptSeconds=approaching?Math.max(0,(puck.y-235)/-puck.vy):0;
+  // Predict where the puck reaches the bot's contact line, including a wall bounce.
+  const contactLine=clamp(bot.y+pr+paddleRadius(room,1)+12,195,300);
+  const interceptSeconds=approaching?clamp((puck.y-contactLine)/Math.max(90,-puck.vy),0,.72):0;
   // Difficulty error remains STABLE for several moments. Re-randomizing it
   // every think cycle caused easy/hard to shake even when the puck was still.
   const interval=Math.floor((room.elapsedMs||0)/1700);
@@ -187,10 +189,10 @@ export function updateBot(room,now=Date.now()) {
   if(approaching&&inZone){
     const aim=projectedX(interceptSeconds);
     if(puck.y<345){
-      const touchLead=Math.min(.18,Math.max(0,(puck.y-215)/-puck.vy));
-      x=projectedX(touchLead)+error*.22;
-      y=puck.y-(pr+paddleRadius(room,1))*.68;
-    }else{x=aim+error;y=200;}
+      // Intercept and strike from above without increasing physical speed.
+      x=aim+error*(cfg.speed<500?.36:.2);
+      y=puck.y-(pr+paddleRadius(room,1))*.78;
+    }else{x=aim+error;y=185;}
   }else if(puck.y<125&&puck.vy<0){
     x=puck.x+error*.25;
     y=b.minY+9;

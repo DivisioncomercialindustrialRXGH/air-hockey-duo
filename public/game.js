@@ -1,4 +1,4 @@
-import {sampleRemotePose} from './motion.js';
+import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot} from './motion.js';
 const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
 const $ = selector => document.querySelector(selector);
 const storage = {
@@ -34,7 +34,7 @@ const app = {
   ws: null, seat: 0, room: null, name: storage.getItem('ah_name') || '', token: null,
   online: false, desiredJoin: null, // No entrar automáticamente: debe poder elegirse el equipo.
   pending: null, state: null, oldPhase: null, lastStateAt: 0, lastGoalBy: null,
-  puckDraw: null, puckFrames: [], remotePaddleFrames: [], trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
+  puckDraw: null, puckFrames: [], remotePaddleFrames: [], clock:{}, trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
   sendAt: 0, localPaddle: null, audioEnabled: storage.getItem('ah_sound') !== 'off', audio: null,
   lastFrame: performance.now(), lastUIAt:0,
   lastEventSeen: 0, lastLocalHit: 0, speculativeUntil: 0, inputV: {x:0,y:0}, prevInputAt: 0,
@@ -154,7 +154,7 @@ function handleMessage(msg) {
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
-    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.localPaddle = null;app.inputMoved=false;
+    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.clock={}; app.localPaddle = null;app.inputMoved=false;
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
     app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
     storage.setItem('ah_token_' + msg.code, msg.token);
@@ -192,21 +192,19 @@ function handleMessage(msg) {
       app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.remotePaddleFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
     }
     app.lastStateAt=performance.now();
-    // Dibujamos snapshots autoritativos; no se ejecuta otra física distinta en el celular.
-    // Si hubo choque/gol, empezamos una nueva curva, nunca interpolamos "a través" del rebote.
-    if(phaseChanged || (prev && msg.event?.id!==prev.event?.id && ['hit','wall','reset'].includes(msg.event?.type))){
-      app.puckFrames=[];
-      app.remotePaddleFrames=[];
+    // Stable server timeline; preserve normal hits/walls rather than snapping.
+    const tick=serverFrameTime(app.clock,msg.serverNow,app.lastStateAt);
+    const trueTeleport=phaseChanged || msg.event?.type==='reset' &&
+      msg.event.id!==prev?.event?.id || tick.reset;
+    if(trueTeleport){
+      app.puckFrames=[];app.remotePaddleFrames=[];
+      app.puckDraw=null;app.trail=[];
     }
-    // Interpolate remote mallets using the SAME visual timeline as the puck.
-    // Drawing raw 20 Hz snapshots caused the bot to appear to vibrate even
-    // when its server-side position was perfectly smooth at 60 Hz.
-    app.remotePaddleFrames.push({at:app.lastStateAt,poses:msg.paddles.map(p=>orient(p,msg))});
-    if(app.remotePaddleFrames.length>12)app.remotePaddleFrames.shift();
+    pushSnapshot(app.remotePaddleFrames,{at:tick.at,poses:msg.paddles.map(p=>orient(p,msg))});
     const facing=sideFor(msg)===1?-1:1;
     const oriented=orient(msg.puck,msg);
-    app.puckFrames.push({at:app.lastStateAt,x:oriented.x,y:oriented.y,vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
-    if(app.puckFrames.length>5)app.puckFrames.shift();
+    pushSnapshot(app.puckFrames,{at:tick.at,x:oriented.x,y:oriented.y,
+      vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
     if (msg.event && msg.event.id > app.lastEventSeen) {
       app.lastEventSeen=msg.event.id;
       const e=orient(msg.event);
@@ -734,20 +732,33 @@ function drawArena(c,bottomTeam=0) {
   const glint=.5;
   c.fillStyle=`rgba(92,220,251,${glint*.1})`;c.fillRect(22,H/2+18,4,110);
 }
-function drawPaddle(p, team, r=PADDLE_R, name=null, labelWidth=125, lane=null) {
+// Cache expensive glows/gradients instead of generating each frame.
+const paddleImages=new Map();
+function getPaddleImage(team,r){
+  const key=team+':'+r;
+  if(paddleImages.has(key))return paddleImages.get(key);
+  const pad=Math.ceil(r+30),scale=1.6;
+  const canvas=document.createElement('canvas');
+  canvas.width=canvas.height=Math.ceil(pad*2*scale);
+  const pen=canvas.getContext('2d');pen.scale(scale,scale);
   const blue = team === 0;
   const color = teamColor(team);
-  ctx.save();ctx.translate(p.x,p.y);
-  ctx.shadowColor=color;ctx.shadowBlur=24;
-  ctx.fillStyle=blue?'#22acd7':'#b82a76';ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();
-  ctx.shadowBlur=0;
-  ctx.strokeStyle=blue?'#8cf1ff':'#ffaad8';ctx.lineWidth=7;ctx.beginPath();ctx.arc(0,0,r-4,0,Math.PI*2);ctx.stroke();
-  const g=ctx.createRadialGradient(-12,-14,1,0,0,r);
+  pen.save();pen.translate(pad,pad);
+  pen.shadowColor=color;pen.shadowBlur=24;
+  pen.fillStyle=blue?'#22acd7':'#b82a76';pen.beginPath();pen.arc(0,0,r,0,Math.PI*2);pen.fill();
+  pen.shadowBlur=0;
+  pen.strokeStyle=blue?'#8cf1ff':'#ffaad8';pen.lineWidth=7;pen.beginPath();pen.arc(0,0,r-4,0,Math.PI*2);pen.stroke();
+  const g=pen.createRadialGradient(-12,-14,1,0,0,r);
   if(blue){g.addColorStop(0,'#c4ffff');g.addColorStop(.25,'#5cdaf4');g.addColorStop(.65,'#167cae');g.addColorStop(1,'#073152');}
   else{g.addColorStop(0,'#ffd4ed');g.addColorStop(.25,'#ff79b8');g.addColorStop(.65,'#a32873');g.addColorStop(1,'#48143f');}
-  ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r-11,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle='#ffffff3a';ctx.lineWidth=2;ctx.beginPath();ctx.arc(-7,-7,13,Math.PI,Math.PI*1.6);ctx.stroke();
-  ctx.restore();
+  pen.fillStyle=g;pen.beginPath();pen.arc(0,0,r-11,0,Math.PI*2);pen.fill();
+  pen.strokeStyle='#ffffff3a';pen.lineWidth=2;pen.beginPath();pen.arc(-7,-7,13,Math.PI,Math.PI*1.6);pen.stroke();
+  pen.restore();
+  const image={canvas,pad};paddleImages.set(key,image);return image;
+}
+function drawPaddle(p, team, r=PADDLE_R, name=null, labelWidth=125, lane=null){
+  const sprite=getPaddleImage(team,r);
+  ctx.drawImage(sprite.canvas,p.x-sprite.pad,p.y-sprite.pad,sprite.pad*2,sprite.pad*2);
   if(name)drawNameTag(p,r,name,team,labelWidth,lane);
 }
 /** Names for team matches: drawn in screen-space, never upside down on pink devices. */
@@ -776,7 +787,21 @@ function drawNameTag(p,r,name,team,widthCap=125,lane=null){
   ctx.fillText(caption,cx,cy);
   ctx.restore();
 }
-function drawPuck(p) {
+const puckImages=new Map();
+function getPuckImage(R){
+  if(puckImages.has(R))return puckImages.get(R);
+  const pad=Math.ceil(R+28),scale=1.6;
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=Math.ceil(2*pad*scale);
+  const pen=canvas.getContext('2d');pen.scale(scale,scale);
+  pen.save();pen.translate(pad,pad);pen.shadowColor='#dbf4ff';pen.shadowBlur=21;
+  pen.fillStyle='#dce9f4';pen.beginPath();pen.arc(0,0,R,0,Math.PI*2);pen.fill();
+  pen.shadowBlur=0;pen.fillStyle='#253952';pen.beginPath();pen.arc(0,0,R-5,0,Math.PI*2);pen.fill();
+  const g=pen.createRadialGradient(-5,-6,0,0,0,R-7);g.addColorStop(0,'#ffffff');g.addColorStop(.5,'#bfd8ea');g.addColorStop(1,'#5f88ac');
+  pen.fillStyle=g;pen.beginPath();pen.arc(0,0,R-8,0,Math.PI*2);pen.fill();
+  pen.restore();
+  const image={canvas,pad};puckImages.set(R,image);return image;
+}
+function drawPuck(p){
   const R=p.r || PUCK_R;
   const trail=app.trail;
   if (!trail.length || Math.hypot(trail[trail.length-1].x-p.x,trail[trail.length-1].y-p.y)>400) trail.length=0;
@@ -787,12 +812,8 @@ function drawPuck(p) {
     ctx.fillStyle=`rgba(149,224,252,${alpha})`;
     ctx.beginPath();ctx.arc(point.x,point.y,R*(.55+i/trail.length*.3),0,Math.PI*2);ctx.fill();
   }
-  ctx.save();ctx.translate(p.x,p.y);ctx.shadowColor='#dbf4ff';ctx.shadowBlur=21;
-  ctx.fillStyle='#dce9f4';ctx.beginPath();ctx.arc(0,0,R,0,Math.PI*2);ctx.fill();
-  ctx.shadowBlur=0;ctx.fillStyle='#253952';ctx.beginPath();ctx.arc(0,0,R-5,0,Math.PI*2);ctx.fill();
-  const g=ctx.createRadialGradient(-5,-6,0,0,0,R-7);g.addColorStop(0,'#ffffff');g.addColorStop(.5,'#bfd8ea');g.addColorStop(1,'#5f88ac');
-  ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,R-8,0,Math.PI*2);ctx.fill();
-  ctx.restore();
+  const sprite=getPuckImage(R);
+  ctx.drawImage(sprite.canvas,p.x-sprite.pad,p.y-sprite.pad,sprite.pad*2,sprite.pad*2);
 }
 const backdrops=[0,1].map(side=>{
   const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;
@@ -809,34 +830,15 @@ function drawPower(s,t){
   ctx.shadowBlur=0;ctx.fillStyle='#fff1b4';ctx.font='bold 26px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(icons[s.power.type]||'✦',0,0);
   ctx.restore();
 }
-/**
- * El servidor es el único que calcula colisiones. Los últimos estados se dibujan
- * con un ligero retardo (45 ms) y extrapolación máxima de 30 ms cuando llegan tarde.
- * Antes, la física "especulativa" del celular chocaba con la del servidor y podía
- * dibujar la bola saliendo hacia atrás al corregir la posición.
- */
+/** Ordinary bounces use the same server timeline; only goals and reset snap. */
 function samplePuck(now,phase){
-  const frames=app.puckFrames;
-  if(!frames.length)return app.puckDraw;
-  const newest=frames[frames.length-1], target=now-(app.state?.settings?.mode==='bot'?92:45);
-  if(!['playing','overtime'].includes(phase))return {...newest};
-  if(target<=frames[0].at)return {...frames[0]};
-  for(let i=1;i<frames.length;i++){
-    const a=frames[i-1],b=frames[i];
-    if(target<=b.at){
-      const fraction=Math.max(0,Math.min(1,(target-a.at)/Math.max(1,b.at-a.at)));
-      return {x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction,
-        vx:b.vx,vy:b.vy,r:a.r+(b.r-a.r)*fraction};
-    }
-  }
-  const elapsed=Math.min(30,Math.max(0,target-newest.at))/1000;
-  const radius=newest.r;
-  let x=newest.x+newest.vx*elapsed,y=newest.y+newest.vy*elapsed;
-  x=Math.min(W-radius,Math.max(radius,x));
-  // En los bordes verticales dejamos que el servidor decida si es gol o rebote.
-  y=Math.min(H+radius,Math.max(-radius,y));
-  return {...newest,x,y};
+  if(!app.puckFrames.length)return app.puckDraw;
+  if(!['playing','overtime'].includes(phase))return {...app.puckFrames.at(-1)};
+  return samplePuckPose(app.puckFrames,now,{
+    delayMs:app.state?.settings?.mode==='bot'?115:145,maxExtrapolateMs:35
+  });
 }
+
 function drawGoalFx(t){
   const g=app.goalFx;if(!g)return;
   const age=(t-g.start)/1000;if(age>.8){app.goalFx=null;return;}
@@ -869,7 +871,7 @@ function drawParticles(dt){
 function sampleRemotePaddle(index, now, fallback) {
   const isBot=app.state?.settings?.mode==='bot';
   const sampled=sampleRemotePose(app.remotePaddleFrames,index,now,{
-    delayMs:isBot?92:108,
+    delayMs:isBot?115:145,
     maxExtrapolateMs:55,
     maxSpeed:isBot?1100:3600,
     bounds:{minX:PADDLE_R,maxX:W-PADDLE_R,minY:PADDLE_R,maxY:H-PADDLE_R}
@@ -878,12 +880,17 @@ function sampleRemotePaddle(index, now, fallback) {
 }
 
 function draw(t){
-  const dt=Math.min(.04,Math.max(.001,(t-app.lastFrame)/1000));app.lastFrame=t;
   if(ui.game.classList.contains('hidden')||document.hidden){
+    app.nextPaintAt=0;
     setTimeout(()=>requestAnimationFrame(draw),160);
     return;
   }
   requestAnimationFrame(draw);
+  // 60fps target on 60/90/120Hz displays, without dropping 90Hz phones to 45fps.
+  if(!app.nextPaintAt)app.nextPaintAt=t;
+  if(t+.75<app.nextPaintAt)return;
+  app.nextPaintAt=Math.max(app.nextPaintAt+1000/60,t+1000/120);
+  const dt=Math.min(.04,Math.max(.001,(t-app.lastFrame)/1000));app.lastFrame=t;
   ctx.setTransform(ui.arena.width/W,0,0,ui.arena.height/H,0,0);
   ctx.drawImage(backdrops[sideFor(app.state)===1?1:0],0,0,W,H);
   const s=app.state;
@@ -901,7 +908,8 @@ function draw(t){
   if(app.touchId!==null && app.inputMoved && t-app.sendAt>=22 && isPlaying(s)){
     send({type:'move',...app.input});app.sendAt=t;
   }
-  app.puckDraw=samplePuck(t,s.phase)||{...orient(s.puck),vx:0,vy:0,r:s.puck.r||PUCK_R};
+  const puckTarget=samplePuck(t,s.phase)||{...orient(s.puck),vx:0,vy:0,r:s.puck.r||PUCK_R};
+  app.puckDraw= ['playing','overtime'].includes(s.phase)?softenPuckPosition(app.puckDraw,puckTarget,dt):{...puckTarget};
   app.renderPhase=s.phase;
   drawPower(s,t);
   const localIndex=s.settings?.mode==='tournament'?s.activeSeats.indexOf(app.seat):app.seat;

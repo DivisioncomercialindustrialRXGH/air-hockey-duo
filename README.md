@@ -1,18 +1,16 @@
-# 🏒 Air Hockey DUO Arena 4.7 — Bot fluido + botón ↻ siempre visible
+# Air Hockey DUO Arena 4.8 — Disco y bot más fluidos
 
-Corrección incremental sobre Arena 4.6. **No cambia diseño, física, música, puntajes, nombres ni salas**.
+Actualización de la versión 4.7. Mantiene el mismo diseño, música, nombres, equipos, poderes, PWA, torneos, física del disco y botón ↻.
 
-## Qué corrige
+## Cambios
+- Un golpe o rebote normal ya no borra el historial visual del disco.
+- Se utiliza el reloj del servidor para que los paquetes WebSocket con retrasos variables no provoquen tirones.
+- El disco recupera la posición visual sin teletransportarse después de un retraso de red; los goles y el reset siguen recenterando de inmediato.
+- Objetivo de 60 FPS en teléfonos de 60/90/120 Hz, sin reducir los de 90 Hz a 45 FPS.
+- Paletas y disco usan gráficos cacheados, sin recalcular sus brillos en cada fotograma.
+- Bot más preciso al anticipar el contacto y los rebotes laterales, sin aumentar velocidad ni aceleración.
 
-- **Bot sin stop-motion:** la vista anterior solo retenía 55 ms de estados de red y extrapolaba como máximo 22 ms. A 20 mensajes/s, eso dejaba tramos sin movimiento. Se utiliza un búfer de interpolación de 92 ms con 30 estados/s **solo en salas BOT**. La presentación visual es continua a la frecuencia de refresco del móvil; el motor físico sigue autoritativo a 60 Hz.
-- **Botón de recuperación visible:** ↻ en la barra superior del juego, junto al botón ♫, incluso en móviles con poca altura. Púlsalo durante la partida para recentrar el disco sin alterar el marcador. Límite de una recuperación por sala cada 15 segundos.
-- **PWA:** caché con nueva versión y recursos con indicador v4.7.0, reduciendo riesgo de abrir una interfaz anterior.
-- **Pruebas de interpolación:** nuevo archivo `test/motion.test.js`.
+## Comprobar
+Ejecutar `npm test`. Probar partidas BOT Fácil/Difícil/Dios y 2 vs 2 en dos celulares con conexiones distintas.
 
-## Publicación
-Actualización directa del repositorio de GitHub en la rama main, con un solo commit. Cloudflare conserva el mismo Worker y enlace.
-
-## Qué probar
-Modo BOT Dios y Difícil, mover el bot de lado a lado y comprobar fluidez. Verifica ↻ al lado de ♫ durante la partida. Prueba pulsarlo y confirmar que vuelve al centro sin cambiar el tanteador. Si un teléfono queda con caché anterior, borra los datos del sitio del juego y vuelve a abrirlo.
-
-**Aviso:** pruebas automatizadas locales no garantizan rendimiento perfecto con todas las conexiones o todos los navegadores. El modo BOT sigue utilizando un servidor en Cloudflare, aunque solo juegue una persona.
+El servidor de Cloudflare continúa siendo la única autoridad para colisiones, goles y marcadores. Una red lenta todavía puede afectar el tiempo de reacción, aunque el dibujo se vea más fluido.
