@@ -47,5 +47,5 @@ test('Reset button is actually in visible HUD and no duplicated ID exists',()=>{
   const hud=html.match(/<div class="toolbar-actions"[\s\S]*?<\/div>/)?.[0];
   assert.ok(hud?.includes('id="reset-puck-btn"'));
   assert.equal((html.match(/id="reset-puck-btn"/g)||[]).length,1);
-  assert.match(html,/game\.js\?v=5\.0\.4-rc\.2/);
+  assert.match(html,/game\.js\?v=5\.3\.0-choices\.1/);
 });

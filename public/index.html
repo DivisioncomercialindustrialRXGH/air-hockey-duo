@@ -12,7 +12,7 @@
   <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/styles.css?v=5.0.4-rc.2" />
+  <link rel="stylesheet" href="/styles.css?v=5.3.0-choices.1" />
 </head>
 <body>
   <div class="ambient ambient-one"></div>
@@ -41,8 +41,34 @@
         <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>👥 2 vs. 2</span><span>🏆 Torneos</span><span>🤖 Contra bot</span><span>🔗 Sala privada</span><span>🎁 Poderes sorpresa</span></div>
       </section>
 
+      <section class="connection-picker" aria-label="Elegir dónde jugar">
+        <div class="connection-cards" role="group" aria-label="Tipo de conexión">
+          <button id="choose-online" type="button" class="connection-option" aria-pressed="true">
+            <span class="connection-option-title">🌍 ONLINE</span>
+            <span class="connection-option-sub">A distancia · Internet</span>
+          </button>
+          <button id="choose-lan" type="button" class="connection-option" aria-pressed="false">
+            <span class="connection-option-title">📡 WI-FI LOCAL</span>
+            <span class="connection-option-sub">Juntos · sin Internet</span>
+          </button>
+        </div>
+        <div id="lan-setup" class="lan-setup hidden">
+          <strong>Dos o más celulares conectados al mismo Wi-Fi</strong>
+          <p>Para esta versión se necesita una computadora Mac o Windows como anfitriona, con el servidor LAN iniciado. No hace falta Internet.</p>
+          <div id="lan-remote-entry" class="lan-address-row">
+            <input id="lan-address" class="text-input" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.1.50:8787" aria-label="Dirección local de la computadora" />
+            <button id="open-lan" type="button" class="secondary-button">ENTRAR <span>→</span></button>
+          </div>
+          <p id="lan-setup-message" class="lan-setup-message" role="status"></p>
+        </div>
+      </section>
+
       <section class="home-panel" aria-label="Iniciar partida">
         <div class="panel-header"><span class="panel-step">01</span><span>PREPARA TU PARTIDA</span></div>
+        <div id="lan-mode-banner" class="lan-mode-banner hidden" role="status">
+          <strong>📡 PARTIDAS WI-FI SIN INTERNET</strong>
+          <span>Conecta ambos teléfonos al mismo Wi-Fi, abre esta dirección local en los dos, crea una sala y comparte su código.</span>
+        </div>
         <label class="input-label" for="player-name">TU APODO <span>(OPCIONAL)</span></label>
         <input id="player-name" class="text-input" type="text" maxlength="20" placeholder="Ej. Campeón del hielo" autocomplete="nickname" />
         <label class="input-label" for="game-mode-select">MODO DE JUEGO</label>
@@ -51,8 +77,9 @@
           <option value="bot">🤖 Contra el bot · jugar solo</option>
           <option value="duo">👫 Equipos · 2 vs. 2</option>
           <option value="teams">⚡ Equipos · 4 vs. 4</option>
-          <option value="tournament">🏆 Torneo eliminatorio</option>
+          <option value="tournament" id="tournament-mode">🏆 Torneo eliminatorio</option>
         </select>
+        <p class="option-help">Próximamente: <a class="arena-preview-link" href="/arena-lab.html">ver arenas de 3 y 4 equipos (vista previa)</a></p>
         <div id="bot-difficulty-option" class="team-option hidden">
           <label class="input-label" for="bot-difficulty">DIFICULTAD DEL BOT</label>
           <select class="select-input" id="bot-difficulty">
@@ -79,7 +106,7 @@
         </div>
         <label class="input-label puck-label">TAMAÑO DE LA PELOTA</label>
         <div class="puck-sizes" role="radiogroup" aria-label="Tamaño de la pelota"><label class="size-choice"><input type="radio" name="puck-size" value="S"/><span><i class="puck-preview puck-s"></i>S <small>RÁPIDO</small></span></label><label class="size-choice"><input type="radio" name="puck-size" value="M" checked/><span><i class="puck-preview puck-m"></i>M <small>CLÁSICO</small></span></label><label class="size-choice"><input type="radio" name="puck-size" value="L"/><span><i class="puck-preview puck-l"></i>L <small>GRANDE</small></span></label></div>
-        <label class="power-setting"><input id="powers-enabled" type="checkbox" checked/><span>🎁 Poderes aleatorios <small>Turbo · Disco gigante · Paleta gigante</small></span></label>
+        <label class="power-setting"><input id="powers-enabled" type="checkbox" checked/><span>🎁 Poderes aleatorios <small>Turbo · Bola lenta · Mini paleta · Disparo cargado y más</small></span></label>
         <button id="create-btn" class="primary-button" type="button"><span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span></button>
         <div class="or-line"><span>O ÚNETE A UNA SALA</span></div>
         <label class="input-label" for="join-team">EQUIPO AL UNIRTE (SOLO 2 VS 2 / 4 VS 4)</label>
@@ -87,7 +114,7 @@
         <div class="join-row"><input id="room-code" class="text-input code-input" type="text" maxlength="6" placeholder="CÓDIGO" aria-label="Código de sala" autocapitalize="characters" spellcheck="false" /><button id="join-btn" class="secondary-button" type="button">UNIRME <span>→</span></button></div>
         <div id="home-error" class="home-error" role="status"></div>
       </section>
-      <div class="home-note"><span class="lightning">⚡</span> Gratis · Android y iPhone · Juega desde dos redes distintas</div>
+      <div class="home-note"><span class="lightning">⚡</span> Online a distancia · Wi-Fi local · Bot sin conexión</div>
       <button id="install-btn" class="install-button" type="button">⬇ Instalar como app en mi celular</button>
       <div id="install-help" class="install-help hidden" role="status"></div>
     </main>
@@ -157,6 +184,6 @@
     </main>
     <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
   </div>
-  <script type="module" src="/game.js?v=5.0.4-rc.2"></script>
+  <script type="module" src="/game.js?v=5.3.0-choices.1"></script>
 </body>
 </html>

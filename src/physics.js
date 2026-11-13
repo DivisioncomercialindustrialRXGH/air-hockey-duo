@@ -591,6 +591,18 @@ export function updatePower(room, now=Date.now()) {
 //     never report collisions. A plausible timestamp is not proof of rendering.
 // ---------------------------------------------------------------------------
 export const LAG_COMP = Object.freeze({ maxMs: 360, maxJumpPx: 14, historyMs: 500, minStrokeSpeed: 60, presentWindowMs: 50, disableAboveMs: 360 });
+/** Prevent a historical impact from manufacturing a new shot INTO a nearby goal.
+ * A legitimate immediate hit still uses the regular collision solver.
+ * The replay may only create a late shot if it is not already at the endangered end. */
+export function unsafeDelayedGoalShot(puck, vx, vy, lagMs) {
+  if(!Number.isFinite(vx+vy+puck.x+puck.y)||lagMs<45)return false;
+  const atTop=puck.y<225;
+  const atBottom=puck.y>H-225;
+  const turnedTowardTop=atTop&&vy< -400&&puck.vy> -240;
+  const turnedTowardBottom=atBottom&&vy>400&&puck.vy<240;
+  return turnedTowardTop||turnedTowardBottom;
+}
+
 /** LAG_COMP_MAX_MS=0 disables compensation. maxJumpPx is a legacy config /
  * telemetry ceiling; RC2 always applies zero positional correction. Its zero
  * value retains the former kill-switch behavior for existing deployments. */
@@ -603,7 +615,7 @@ export function lagCompConfig(env={}){
 const LAG = new WeakMap();
 function lagState(room) {
   let s = LAG.get(room);
-  if (!s) { s = { nonWall: 0, history: [], lag: [], inputs: [], verified: [], clock: 0, stats: { applied: 0, rejected: 0, rejGoal: 0, rejEvent: 0, rejJump: 0, rejRink: 0, savedGoals: 0, jumpMax: 0, jumpSum: 0 } }; LAG.set(room, s); }
+  if (!s) { s = { nonWall: 0, history: [], lag: [], inputs: [], verified: [], clock: 0, stats: { applied: 0, rejected: 0, rejGoal: 0, rejEvent: 0, rejJump: 0, rejRink: 0, rejDanger: 0, savedGoals: 0, jumpMax: 0, jumpSum: 0 } }; LAG.set(room, s); }
   return s;
 }
 /** Legacy deterministic fixture hook. Production accepts validated setViewInput only. */
@@ -714,6 +726,12 @@ function tryCompensate(room,dt,maxMs){
     if(goal!==null||other||overlap||!insideRink(shadow.puck,pr)){
       const why=goal!==null?'rejGoal':other||overlap?'rejEvent':'rejRink';
       s.stats.rejected++;s.stats[why]++;continue;
+    }
+    // Safety gate: a late replay may not suddenly fire toward a goal that
+    // the present puck is already approaching/near. This is not a legitimate
+    // real-time collision, so suppress the compensation instead of moving it.
+    if(unsafeDelayedGoalShot(room.puck,shadow.puck.vx,shadow.puck.vy,lag)){
+      s.stats.rejected++;s.stats.rejDanger++;continue;
     }
     room.puck.vx=shadow.puck.vx;room.puck.vy=shadow.puck.vy;room.lastTouch=m.index;
     room.effect=shadow.effect;room.nextPowerAt=shadow.nextPowerAt;

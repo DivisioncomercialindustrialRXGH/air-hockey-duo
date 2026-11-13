@@ -1,0 +1,15 @@
+AIR HOCKEY DUO - LAN SIN INTERNET
+
+1. EN UNA COMPUTADORA con Node.js 22 o posterior, abre esta carpeta.
+2. Ejecuta EJECUTAR_LAN_WINDOWS.cmd o EJECUTAR_LAN_MAC.command.
+   Alternativa en Terminal o CMD: node lan/server.mjs
+3. COPIA LA DIRECCION DE LA RED que aparece (por ejemplo http://192.168.1.50:8787).
+4. EN AMBOS CELULARES conectados a la misma Wi-Fi, abre esa direccion en Safari/Chrome.
+5. Uno crea la sala; el otro ingresa el codigo de 6 caracteres.
+6. Mantén encendida la computadora durante la partida.
+
+No uses la direccion publica de Cloudflare para LAN. La Wi-Fi no necesita Internet.
+Esta primera version necesita una computadora anfitriona; no es P2P celular-a-celular.
+No necesita npm install. Puede requerir instalar Node con Internet UNA SOLA VEZ.
+
+Lee GUIA_MULTIJUGADOR_LAN.md para resolver problemas de red y firewall.

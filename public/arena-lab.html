@@ -1,0 +1,45 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Air Hockey DUO — Laboratorio de arenas</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,-apple-system,sans-serif;color:#dfeeff;background:#070d21}
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;background:radial-gradient(ellipse at 50% 0%,#1e315e 0,transparent 47%),#070d21}
+main{margin:auto;max-width:750px;padding:24px 18px 42px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px}header a{color:#b0c9ea;text-decoration:none;font-size:13px}
+h1{font-size:clamp(23px,5vw,35px);margin:0;letter-spacing:-.035em}p{color:#9db0ce;line-height:1.55}
+.controls{display:flex;gap:8px;border-radius:18px;background:#102343;padding:6px;margin:21px 0 16px}.controls button{flex:1;appearance:none;border:1px solid transparent;border-radius:12px;background:transparent;color:#9db0ce;font:700 13px system-ui;padding:14px 6px;cursor:pointer;transition:background .2s,color .2s}.controls button.active{background:#1b4165;color:#7cefff;border-color:#416f94}.controls button:focus-visible{outline:2px solid #7cefff;outline-offset:2px}
+.stage{position:relative;overflow:hidden;background:linear-gradient(145deg,#101c3b,#08172e);border:1px solid #406186;border-radius:24px;box-shadow:0 22px 60px #0007}canvas{width:100%;height:auto;display:block;aspect-ratio:1/1}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:9px;margin-top:16px}.team{padding:12px 15px;border-radius:12px;border:1px solid #243c5d;background:#101d38;color:#e4f3ff;display:flex;gap:8px;align-items:center;font-size:13px}.dot{width:11px;height:11px;border-radius:50%;background:var(--c);box-shadow:0 0 13px var(--c)}.hint{font-size:13px;margin-top:20px}.eyebrow{font-size:12px;color:#6ec9d9;font-weight:800;letter-spacing:.16em;margin:0 0 10px}
+@media(max-width:400px){main{padding:18px 12px}.controls button{font-size:12px}.stage{border-radius:17px}}
+</style></head><body><main>
+<header><div><div class="eyebrow">AIR HOCKEY DUO · ARENA LAB</div><h1>Nuevas arenas multiequipo</h1></div><a href="/">Volver al juego</a></header>
+<p>Diseño conceptual de las nuevas canchas. Cada equipo defenderá una portería distinta con dos jugadores. Esta pantalla es una <strong>vista previa</strong>: los modos todavía no están habilitados para partidas online.</p>
+<div class="controls" role="group" aria-label="Cantidad de equipos"><button class="active" type="button" data-count="3" aria-pressed="true">2 VS 2 VS 2</button><button type="button" data-count="4" aria-pressed="false">2 VS 2 VS 2 VS 2</button></div>
+<div class="stage"><canvas id="arena" width="900" height="900" role="img" aria-label="Mapa de tres equipos con tres porterías">Tu navegador no soporta Canvas.</canvas></div><div id="legend" class="legend"></div><p class="hint">El disco se mantiene en una única simulación autoritativa; la futura versión online asignará controles, colores, anotaciones y una vista orientada para cada equipo.</p>
+</main><script>
+(()=>{
+ const canvas=document.querySelector('#arena'),ctx=canvas.getContext('2d');
+ const colors=['#56e8ff','#ff70bd','#b39aff','#ffc76c'];const labels=['Cian','Rosa','Violeta','Ámbar'];let teams=3;
+ const vertices=n=>n===3?[[450,80],[810,720],[90,720]]:[[180,150],[720,150],[720,690],[180,690]];
+ const lerp=(a,b,t)=>a+(b-a)*t;
+ function segment(a,b,from,to){return [lerp(a[0],b[0],from),lerp(a[1],b[1],from),lerp(a[0],b[0],to),lerp(a[1],b[1],to)];}
+ function line(a,b,color,width=6){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke()}
+ function draw(){const pts=vertices(teams),cx=450,cy=450;ctx.clearRect(0,0,900,900);
+ const bg=ctx.createLinearGradient(0,0,900,900);bg.addColorStop(0,'#192b51');bg.addColorStop(1,'#09182e');ctx.fillStyle=bg;ctx.fillRect(0,0,900,900);
+ ctx.strokeStyle='#34577944';ctx.lineWidth=1;for(let i=0;i<900;i+=50){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,900);ctx.moveTo(0,i);ctx.lineTo(900,i);ctx.stroke()}
+ ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fillStyle='#12365b77';ctx.fill();ctx.save();ctx.clip();
+ for(let r=100;r<650;r+=100){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle='#83bdf21a';ctx.lineWidth=2;ctx.stroke()}ctx.restore();
+ for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length],c=colors[i];
+ const left=segment(a,b,0,.37),right=segment(a,b,.63,1),gap=segment(a,b,.37,.63);
+ ctx.shadowBlur=12;ctx.shadowColor=c;line(left.slice(0,2),left.slice(2),c,7);line(right.slice(0,2),right.slice(2),c,7);line(gap.slice(0,2),gap.slice(2),c+'66',17);ctx.shadowBlur=0;
+ const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy);
+ const ux=dx/len,uy=dy/len,ix=(cx-mx),iy=(cy-my),ilen=Math.hypot(ix,iy),nx=ix/ilen,ny=iy/ilen;
+ const p1={x:mx-ux*85+nx*76,y:my-uy*85+ny*76},p2={x:mx+ux*85+nx*76,y:my+uy*85+ny*76};
+ for(const p of [p1,p2]){ctx.shadowBlur=22;ctx.shadowColor=c;ctx.fillStyle='#081326';ctx.strokeStyle=c;ctx.lineWidth=8;ctx.beginPath();ctx.arc(p.x,p.y,29,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.shadowBlur=0;
+ ctx.fillStyle='#ffffffcc';ctx.beginPath();ctx.arc(p.x-6,p.y-6,6,0,Math.PI*2);ctx.fill()}
+ ctx.fillStyle=c;ctx.font='bold 23px system-ui';ctx.textAlign='center';ctx.fillText('EQUIPO '+(i+1),mx+nx*150,my+ny*150);
+ }
+ ctx.beginPath();ctx.arc(cx,cy,77,0,Math.PI*2);ctx.strokeStyle='#77e4ff44';ctx.lineWidth=4;ctx.stroke();ctx.shadowColor='#c5ecff';ctx.shadowBlur=18;ctx.fillStyle='#d4efff';ctx.beginPath();ctx.arc(cx,cy,21,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+ ctx.fillStyle='#92aac8';ctx.font='bold 18px system-ui';ctx.textAlign='center';ctx.fillText(teams===3?'3 PORTERÍAS':'4 PORTERÍAS',cx,842);
+ }
+ const legend=document.querySelector('#legend');function refresh(){document.querySelectorAll('button[data-count]').forEach(b=>{const a=+b.dataset.count===teams;b.classList.toggle('active',a);b.setAttribute('aria-pressed',String(a))});legend.innerHTML='';for(let i=0;i<teams;i++){const d=document.createElement('div');d.className='team';d.innerHTML=`<span class="dot" style="--c:${colors[i]}"></span> Equipo ${labels[i]} · 2`;legend.append(d)}canvas.setAttribute('aria-label',`Mapa de ${teams} equipos con ${teams} porterías`);draw()}
+ document.querySelectorAll('button[data-count]').forEach(b=>b.addEventListener('click',()=>{teams=+b.dataset.count;refresh()}));refresh();
+})();
+</script></body></html>

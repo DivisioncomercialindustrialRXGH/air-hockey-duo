@@ -13,7 +13,7 @@ import {
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_TTL=30*60*1000, SEAT_TTL=2*60*1000, MAX_ROOMS=45;
 const online=ws=>Boolean(ws&&ws.readyState===1);
-const RELEASE='5.0.4-rc.2-audited';
+const RELEASE='5.3.0-rc.1-online-lan-choice';
 const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 export default {
   async fetch(request,env){

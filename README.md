@@ -1,36 +1,19 @@
-# Air Hockey DUO Arena 5.0.4 RC2 — revisión independiente
+# 🏒 Air Hockey DUO Arena 5.2 — duelo LAN (candidata)
 
-Candidata local para validación de producción. Corrige contactos temporales sin mover la posición del disco, separación junto a paredes, tamaños de poderes y salida diagonal de portería. Conserva modos, torneos, bots, audio, diseño, controles y PWA. **No se publicó en GitHub ni Cloudflare.**
+**Nuevo modo multijugador local 1 vs. 1**, sin Internet durante las partidas: dos teléfonos conectados a una computadora anfitriona sobre la misma Wi-Fi. Física del servidor LAN a 60 Hz; estados por WebSocket local a 30 Hz. No depende de Cloudflare. Conserva el código online y bot local de Arena 5.1.
 
-- **155/155 pruebas actuales**, incluidas las ocho históricas sin cambiar sus umbrales y su repetición bajo el protocolo RC2.
-- **92/92 pruebas originales de Claude**, ejecutadas desde su árbol Git.
-- **648.000 pasos de estrés de RC2**, sin penetración observada; corrección espacial por compensación: 0 px.
-- A 83 ms, validación con semillas nuevas: **2,8 %** de contactos perdidos frente a **5,6 %** en 5.0.3 y **15,1 %** en RC1; 1.000 intentos por versión.
+- Guía de puesta en marcha: **[GUIA_MULTIJUGADOR_LAN.md](GUIA_MULTIJUGADOR_LAN.md)**
+- Inicio rápido: `node lan/server.mjs` (Node 22+, sin `npm install`).
+- Mac: `EJECUTAR_LAN_MAC.command`. Windows: `EJECUTAR_LAN_WINDOWS.cmd`.
+- Abre la IP mostrada por la computadora desde los dos celulares, crea sala, comparte código de seis caracteres.
+- Suite: `npm test` (163/163 pruebas superadas). La interfaz en teléfonos reales y la instalación PWA sobre HTTP local deben probarse.
+- **No publicado** en GitHub/Cloudflare. No es todavía una conexión P2P sin computadora.
 
-La red muy degradada sigue causando fallos. La reacción temporal puede llegar tarde y los poderes crecen cuando existe espacio. Se comprobó Chrome emulado y Worker local; **faltan teléfonos físicos, redes reales y carga de múltiples salas en Cloudflare**. No equivale a aprobación de producción.
+El diseño de arenas de 3 y 4 equipos se conserva como vista previa, no como multijugador terminado.
 
-- [Diagnóstico, comparación y límites de RC2](docs/audit/rc2/AUDITORIA_RC2.md)
-- [Integración y validación](docs/audit/rc2/INTEGRACION_RC2.md)
-- [Matriz de red](docs/audit/rc2/paired-network.json) y [semillas nuevas](docs/audit/rc2/holdout-network.json)
-- [Estrés comparativo](docs/audit/rc2/paired-stress.json)
-- [Pruebas ejecutadas](docs/audit/rc2/current-tests.log)
-- [Informe histórico RC1](docs/audit/AUDITORIA_FINAL.md), conservado como antecedente
 
-## Reproducir
-
-Node 22+ (auditado en 24.22.0):
-
-```sh
-npm ci
-npm run check
-npm run test:baseline
-npm run audit:metrics
-npm run audit:holdout
-npm run audit:stress
-```
-
-Las comparaciones necesitan el historial del bundle entregado o los parches acumulados. Los lanzamientos, entradas, redes y semillas se emparejan entre versiones; el script comprueba igualdad de los lanzamientos. No se compara una física contra otra con diferentes jugadas por terminar antes.
-
-Para Worker local, iniciar `npm run dev -- --local --port 8787`; en otra terminal ejecutar `npm run test:runtime` y, si Playwright/Chromium están disponibles, `npm run test:browser`. Este último admite `AUDIT_PLAYWRIGHT` y `AUDIT_BROWSER` y usa perfiles temporales.
-
-La música original `public/music.m4a` está incluida en el ZIP completo y no cambia respecto de main. Nunca debe borrarse por no aparecer en un parche ligero.
+## Arena 5.3 — Dos formas de jugar
+- **ONLINE a distancia:** WebSocket a Cloudflare (servidor autoritativo). Los teléfonos pueden estar en redes diferentes.
+- **Wi-Fi LOCAL:** desde el selector en Inicio, escribe la dirección IP privada que muestra el anfitrión (Mac/Windows) y abre la página local desde cada teléfono. No requiere conexión a Internet durante la partida. El anfitrión debe permanecer encendido. Soporta duelo, 2v2 y 4v4 en la pista clásica de **dos porterías**. Los nuevos mapas de tres/cuatro porterías siguen solo en vista previa.
+- **VS BOT sin red:** el motor local calcula la física en el propio teléfono, no mediante el ping de Cloudflare.
+- Prueba en dispositivos antes de considerar estable o publicar esta candidata.
