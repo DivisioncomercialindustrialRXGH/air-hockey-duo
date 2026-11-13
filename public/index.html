@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#070b18" />
+  <meta name="description" content="Air Hockey Duo: juega en tiempo real con otra persona desde dos celulares." />
+  <title>Air Hockey DUO — 1 contra 1</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand" aria-label="Air Hockey Duo">
+        <span class="brand-icon"><span class="brand-disc"></span></span>
+        <span class="brand-label">AIR HOCKEY <strong>DUO</strong></span>
+      </div>
+      <span class="connection" id="connection"><span class="connection-dot"></span><span id="connection-text">Conectando...</span></span>
+    </header>
+
+    <main id="home" class="home">
+      <section class="hero">
+        <div class="hero-art" aria-hidden="true">
+          <div class="art-ring ring-one"></div><div class="art-ring ring-two"></div>
+          <div class="art-paddle paddle-pink"></div>
+          <div class="art-puck"></div>
+          <div class="art-paddle paddle-blue"></div>
+          <div class="art-spark s1"></div><div class="art-spark s2"></div>
+        </div>
+        <div class="eyebrow"><span class="eyebrow-star">✦</span> EL CLÁSICO, AHORA EN DOS CELULARES</div>
+        <h1>¡QUE GANE<br />EL <em>MEJOR!</em></h1>
+        <p>Un disco. Dos teléfonos. Una rivalidad épica. Reta a tu pareja a un duelo de Air Hockey en tiempo real.</p>
+        <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>🔗 Sala privada</span></div>
+      </section>
+
+      <section class="home-panel" aria-label="Iniciar partida">
+        <div class="panel-header"><span class="panel-step">01</span><span>PREPARA TU PARTIDA</span></div>
+        <label class="input-label" for="player-name">TU APODO <span>(OPCIONAL)</span></label>
+        <input id="player-name" class="text-input" type="text" maxlength="20" placeholder="Ej. Campeón del hielo" autocomplete="nickname" />
+        <button id="create-btn" class="primary-button" type="button"><span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span></button>
+        <div class="or-line"><span>O ÚNETE A UNA SALA</span></div>
+        <div class="join-row"><input id="room-code" class="text-input code-input" type="text" maxlength="6" placeholder="CÓDIGO" aria-label="Código de sala" autocapitalize="characters" spellcheck="false" /><button id="join-btn" class="secondary-button" type="button">UNIRME <span>→</span></button></div>
+        <div id="home-error" class="home-error" role="status"></div>
+      </section>
+      <div class="home-note"><span class="lightning">⚡</span> Sin descargas. Funciona en Android y iPhone.</div>
+    </main>
+
+    <main id="game" class="game hidden" aria-label="Partida de Air Hockey">
+      <div class="game-toolbar"><button class="icon-button" id="leave-btn" type="button" aria-label="Volver al inicio" title="Salir de la partida">←</button><div class="game-mode"><span class="game-mode-indicator"></span> PARTIDA PRIVADA <span class="game-divider">/</span> <strong id="toolbar-code">------</strong></div><button class="icon-button" id="sound-btn" type="button" aria-label="Activar o desactivar sonido" title="Sonido">♫</button></div>
+      <section class="scoreboard">
+        <div class="score-player you"><div class="score-person"><span class="player-kicker">TU PALETA</span><span class="player-name" id="my-name">TÚ</span></div><span class="score-number" id="my-score">0</span></div>
+        <div class="score-separator"><div>VS</div><span>PRIMERO A 7</span></div>
+        <div class="score-player opponent"><span class="score-number" id="op-score">0</span><div class="score-person"><span class="player-kicker">OPONENTE</span><span class="player-name" id="op-name">RIVAL</span></div></div>
+      </section>
+      <div class="arena-layout">
+        <div class="arena-frame" id="arena-frame">
+          <canvas id="arena" width="500" height="900" aria-label="Pista de Air Hockey: desliza el dedo en la mitad inferior para mover tu paleta"></canvas>
+          <div id="game-overlay" class="game-overlay">
+            <div class="overlay-panel">
+              <div id="overlay-icon" class="overlay-icon">⌁</div>
+              <h2 id="overlay-title">ESPERANDO RIVAL</h2>
+              <p id="overlay-description">Invita a tu pareja para empezar.</p>
+              <div id="invite-box" class="invite-box">
+                <div class="invite-label">CÓDIGO DE TU SALA</div>
+                <div id="invite-code" class="invite-code">------</div>
+                <button id="share-btn" class="share-button" type="button">↗ &nbsp; COMPARTIR ENLACE</button>
+                <button id="copy-btn" class="copy-button" type="button">COPIAR CÓDIGO</button>
+              </div>
+              <button id="rematch-btn" class="primary-button rematch-button hidden" type="button">↻ &nbsp; REVANCHA</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="game-bottom"><span class="swipe-icon">☝</span><span id="game-hint">Desliza el dedo en tu mitad de la pista para mover tu paleta.</span><button class="full-button" id="fullscreen-btn" type="button" title="Pantalla completa" aria-label="Pantalla completa">⛶</button></div>
+    </main>
+    <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
+  </div>
+  <script type="module" src="/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "air-hockey-duo-cloudflare",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Air Hockey DUO multijugador, gratis en Cloudflare Workers y Durable Objects",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/worker.js && node --check src/physics.js && node --check public/game.js && npm test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": { "node": ">=20" }
+}
