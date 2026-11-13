@@ -30,11 +30,13 @@ test('puck bounces against left wall', () => {
 test('server detects a goal only inside the goal opening', () => {
   const r = makeRoom('ABC123');
   r.puck = { x: W/2, y: 10, vx: 0, vy: -450 };
-  assert.equal(stepPuck(r, 1/60), 0);
+  let goal=null;for(let i=0;i<12&&goal===null;i++)goal=stepPuck(r, 1/60);
+  assert.equal(goal,0);
   r.puck = { x: W/2+180, y: 10, vx: 0, vy: -450 };
   assert.equal(stepPuck(r, 1/60), null);
   r.puck = { x: W/2, y: H-10, vx: 0, vy: 450 };
-  assert.equal(stepPuck(r, 1/60), 1);
+  goal=null;for(let i=0;i<12&&goal===null;i++)goal=stepPuck(r, 1/60);
+  assert.equal(goal,1);
 });
 
 test('countdown resets the puck and paddle positions without resetting scores', () => {

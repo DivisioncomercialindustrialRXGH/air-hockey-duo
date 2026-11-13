@@ -4,8 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#070b18" />
-  <meta name="description" content="Air Hockey Duo: juega en tiempo real con otra persona desde dos celulares." />
-  <title>Air Hockey DUO — 1 contra 1</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Hockey DUO" />
+  <link rel="apple-touch-icon" href="/icon-180.png" />
+  <meta name="description" content="Air Hockey DUO: duelo, 2 vs. 2, 4 vs. 4 y torneos entre celulares." />
+  <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="stylesheet" href="/styles.css" />
@@ -31,30 +35,79 @@
           <div class="art-paddle paddle-blue"></div>
           <div class="art-spark s1"></div><div class="art-spark s2"></div>
         </div>
-        <div class="eyebrow"><span class="eyebrow-star">✦</span> EL CLÁSICO, AHORA EN DOS CELULARES</div>
+        <div class="eyebrow"><span class="eyebrow-star">✦</span> EL CLÁSICO, AHORA EN VARIOS CELULARES</div>
         <h1>¡QUE GANE<br />EL <em>MEJOR!</em></h1>
-        <p>Un disco. Dos teléfonos. Una rivalidad épica. Reta a tu pareja a un duelo de Air Hockey en tiempo real.</p>
-        <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>🔗 Sala privada</span></div>
+        <p>Un disco. Tus amigos. Una rivalidad épica. Duelo, equipos 2 vs. 2 y torneos eliminatorios, desde cada celular.</p>
+        <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>👥 2 vs. 2</span><span>🏆 Torneos</span><span>🔗 Sala privada</span><span>🎁 Poderes sorpresa</span></div>
       </section>
 
       <section class="home-panel" aria-label="Iniciar partida">
         <div class="panel-header"><span class="panel-step">01</span><span>PREPARA TU PARTIDA</span></div>
         <label class="input-label" for="player-name">TU APODO <span>(OPCIONAL)</span></label>
         <input id="player-name" class="text-input" type="text" maxlength="20" placeholder="Ej. Campeón del hielo" autocomplete="nickname" />
+        <label class="input-label" for="game-mode-select">MODO DE JUEGO</label>
+        <select class="select-input mode-input" id="game-mode-select">
+          <option value="duel" selected>🏒 Duelo · 1 vs. 1</option>
+          <option value="duo">👫 Equipos · 2 vs. 2</option>
+          <option value="teams">⚡ Equipos · 4 vs. 4</option>
+          <option value="tournament">🏆 Torneo eliminatorio</option>
+        </select>
+        <div id="tournament-option" class="tournament-option hidden">
+          <label class="input-label" for="tournament-size">PARTICIPANTES EN EL TORNEO</label>
+          <select class="select-input" id="tournament-size">
+            <option value="4">4 jugadores</option><option value="8" selected>8 jugadores</option><option value="16">16 jugadores</option><option value="32">32 jugadores</option>
+          </select>
+          <p class="option-help">Sorteo aleatorio · eliminación directa · clasificación en vivo · máximo 32 jugadores</p>
+        </div>
+        <div class="options-grid">
+          <div class="option-cell"><label class="input-label" for="match-time">DURACIÓN</label><select class="select-input" id="match-time"><option value="60">1 minuto</option><option value="90">1:30 minutos</option><option value="120" selected>2 minutos</option><option value="180">3 minutos</option><option value="300">5 minutos</option><option value="0">Sin límite</option></select></div>
+          <div class="option-cell"><label class="input-label" for="match-score">PUNTOS PARA GANAR</label><select class="select-input" id="match-score"><option value="3">3 goles</option><option value="5">5 goles</option><option value="7" selected>7 goles</option><option value="10">10 goles</option><option value="15">15 goles</option></select></div>
+        </div>
+        <label class="input-label puck-label">TAMAÑO DE LA PELOTA</label>
+        <div class="puck-sizes" role="radiogroup" aria-label="Tamaño de la pelota"><label class="size-choice"><input type="radio" name="puck-size" value="S"/><span><i class="puck-preview puck-s"></i>S <small>RÁPIDO</small></span></label><label class="size-choice"><input type="radio" name="puck-size" value="M" checked/><span><i class="puck-preview puck-m"></i>M <small>CLÁSICO</small></span></label><label class="size-choice"><input type="radio" name="puck-size" value="L"/><span><i class="puck-preview puck-l"></i>L <small>GRANDE</small></span></label></div>
+        <label class="power-setting"><input id="powers-enabled" type="checkbox" checked/><span>🎁 Poderes aleatorios <small>Turbo · Disco gigante · Paleta gigante</small></span></label>
         <button id="create-btn" class="primary-button" type="button"><span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span></button>
         <div class="or-line"><span>O ÚNETE A UNA SALA</span></div>
         <div class="join-row"><input id="room-code" class="text-input code-input" type="text" maxlength="6" placeholder="CÓDIGO" aria-label="Código de sala" autocapitalize="characters" spellcheck="false" /><button id="join-btn" class="secondary-button" type="button">UNIRME <span>→</span></button></div>
         <div id="home-error" class="home-error" role="status"></div>
       </section>
-      <div class="home-note"><span class="lightning">⚡</span> Sin descargas. Funciona en Android y iPhone.</div>
+      <div class="home-note"><span class="lightning">⚡</span> Gratis · Android y iPhone · Juega desde dos redes distintas</div>
+      <button id="install-btn" class="install-button" type="button">⬇ Instalar como app en mi celular</button>
+      <div id="install-help" class="install-help hidden" role="status"></div>
     </main>
 
     <main id="game" class="game hidden" aria-label="Partida de Air Hockey">
-      <div class="game-toolbar"><button class="icon-button" id="leave-btn" type="button" aria-label="Volver al inicio" title="Salir de la partida">←</button><div class="game-mode"><span class="game-mode-indicator"></span> PARTIDA PRIVADA <span class="game-divider">/</span> <strong id="toolbar-code">------</strong></div><button class="icon-button" id="sound-btn" type="button" aria-label="Activar o desactivar sonido" title="Sonido">♫</button></div>
+      <div class="game-toolbar">
+        <button class="icon-button" id="leave-btn" type="button" aria-label="Volver al inicio" title="Salir de la partida">←</button>
+        <div class="game-mode"><span class="game-mode-indicator"></span><span id="toolbar-mode">DUELO</span><span class="game-divider">/</span><strong id="toolbar-code">------</strong></div>
+        <div class="toolbar-actions" aria-label="Controles rápidos">
+          <button class="icon-button" id="info-toggle" type="button" title="Jugadores conectados" aria-label="Mostrar jugadores conectados" aria-controls="players-status" aria-expanded="false">👥</button>
+          <button class="icon-button hidden" id="ranking-toggle" type="button" title="Clasificación del torneo" aria-label="Mostrar clasificación del torneo" aria-controls="tournament-panel" aria-expanded="false">🏆</button>
+          <button class="icon-button" id="chat-toggle" type="button" title="Chat y emojis" aria-label="Abrir chat y emojis" aria-controls="chat-panel" aria-expanded="false">💬</button>
+          <button class="icon-button" id="voice-btn" type="button" title="Activar chat de voz beta" aria-label="Chat de voz">🎙</button>
+          <button class="icon-button" id="sound-btn" type="button" aria-label="Música y volumen" title="Música y volumen" aria-controls="audio-panel" aria-expanded="false">♫</button>
+        </div>
+      </div>
+      <section class="audio-panel glass-panel hud-drawer hidden" id="audio-panel" aria-label="Ajustes de audio">
+        <div class="drawer-head"><span>♫ MÚSICA Y SONIDO</span><button type="button" class="close-mini" id="audio-close" aria-label="Cerrar música y sonido">✕</button></div>
+        <div class="slider-item"><label for="music-volume">🎵 Música de fondo</label><input type="range" id="music-volume" min="0" max="100" value="25" step="5"/><span id="music-volume-value">25%</span></div>
+        <div class="slider-item"><label for="sfx-volume">🔊 Golpes y goles</label><input type="range" id="sfx-volume" min="0" max="100" value="70" step="5"/><span id="sfx-volume-value">70%</span></div>
+        <div class="music-actions"><button type="button" id="music-play-btn" class="secondary-button music-control">▶ REPRODUCIR MEZCLA</button><span id="music-status" class="audio-note" role="status" aria-live="polite">Mezcla completa de house · 62 min. En iPhone y Android, pulsa reproducir si el navegador bloquea el inicio automático.</span></div>
+      </section>
+      <audio id="room-music" src="/music.m4a" preload="none" loop playsinline></audio>
       <section class="scoreboard">
         <div class="score-player you"><div class="score-person"><span class="player-kicker">TU PALETA</span><span class="player-name" id="my-name">TÚ</span></div><span class="score-number" id="my-score">0</span></div>
-        <div class="score-separator"><div>VS</div><span>PRIMERO A 7</span></div>
+        <div class="score-separator"><div id="game-time" class="game-timer">02:00</div><span id="game-target">A 7 GOLES</span></div>
         <div class="score-player opponent"><span class="score-number" id="op-score">0</span><div class="score-person"><span class="player-kicker">OPONENTE</span><span class="player-name" id="op-name">RIVAL</span></div></div>
+      </section>
+      <div id="active-power" class="active-power hidden" aria-live="polite"></div>
+      <section id="players-status" class="players-status glass-panel hud-drawer hidden" aria-label="Jugadores conectados">
+        <div class="drawer-head"><span>👥 PARTICIPANTES</span><button type="button" class="close-mini" id="info-close" aria-label="Cerrar participantes">✕</button></div>
+        <div id="players-status-text">Esperando jugadores...</div>
+      </section>
+      <section class="tournament-panel glass-panel hud-drawer hidden" id="tournament-panel">
+        <div class="section-head">🏆 TORNEO EN VIVO <span id="tournament-round"></span><button type="button" class="close-mini" id="ranking-close" aria-label="Cerrar clasificación">✕</button></div>
+        <div id="tournament-ranking" class="ranking"></div>
       </section>
       <div class="arena-layout">
         <div class="arena-frame" id="arena-frame">
@@ -75,7 +128,15 @@
           </div>
         </div>
       </div>
-      <div class="game-bottom"><span class="swipe-icon">☝</span><span id="game-hint">Desliza el dedo en tu mitad de la pista para mover tu paleta.</span><button class="full-button" id="fullscreen-btn" type="button" title="Pantalla completa" aria-label="Pantalla completa">⛶</button></div>
+      <div class="game-bottom"><span class="swipe-icon">☝</span><span id="game-hint">Mueve la paleta con tu dedo · ¡Atrapa los poderes!</span><button class="full-button" id="fullscreen-btn" type="button" title="Pantalla completa" aria-label="Pantalla completa">⛶</button></div>
+      <section class="chat-panel glass-panel hud-drawer hidden" id="chat-panel" aria-label="Chat de sala">
+        <div class="section-head">💬 CHAT DE LA SALA <button class="close-mini" id="chat-close" type="button" aria-label="Cerrar chat">✕</button></div>
+        <div class="chat-messages" id="chat-messages" role="log" aria-live="polite"></div>
+        <div class="emoji-row" aria-label="Reacciones rápidas">
+          <button type="button" data-emoji="😂">😂</button><button type="button" data-emoji="🔥">🔥</button><button type="button" data-emoji="🏒">🏒</button><button type="button" data-emoji="😎">😎</button><button type="button" data-emoji="❤️">❤️</button><button type="button" data-emoji="👏">👏</button>
+        </div>
+        <form id="chat-form" class="chat-form"><input id="chat-input" type="text" maxlength="140" placeholder="Escribe un mensaje…" aria-label="Escribe un mensaje" autocomplete="off"/><button type="submit">ENVIAR</button></form>
+      </section>
     </main>
     <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
   </div>

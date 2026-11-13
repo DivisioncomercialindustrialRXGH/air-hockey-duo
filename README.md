@@ -1,97 +1,81 @@
-# 🏒 Air Hockey DUO — Multijugador real en Cloudflare Free
+# 🏒 Air Hockey DUO ARENA — Versión 4.1 (música + paneles plegables)
 
-Juega **1 contra 1 desde dos celulares distintos**, en tiempo real, usando solamente un enlace. El proyecto incluye página web, física del juego, sincronización por WebSocket, código de sala privado, marcador a 7 goles, revancha y reconexión.
+Nueva actualización de **Air Hockey DUO** para teléfonos Android/iPhone, alojada en **Cloudflare Workers Free + Durable Objects (SQLite)**. Conserva el servidor multijugador de la versión anterior, código de sala y WebSockets.
 
-**Diseñado para funcionar en Cloudflare Workers Free + Durable Objects (SQLite)**: ambos teléfonos pueden usar Wi-Fi o datos móviles y abrir el mismo sitio HTTPS. **No requiere Netlify, Render, Firebase ni un servidor propio**.
+## Novedades
 
-> Aviso importante: el código se comprobó con pruebas automatizadas locales del motor, salas y reconexión, pero **no se ha podido publicar ni probar en una cuenta real de Cloudflare desde este entorno**. Para comprobar el multijugador en dos teléfonos, primero hay que desplegarlo. El plan gratuito tiene cuotas y no significa tráfico ilimitado.
+- **Duelo 1 vs. 1** desde dos teléfonos diferentes.
+- **Equipos 2 vs. 2** (cuatro teléfonos y dos paletas por equipo).
+- **Equipos 4 vs. 4** (ocho teléfonos; cada jugador mueve su paleta por un carril definido).
+- **Torneos eliminatorios** de **4, 8, 16 o 32 jugadores**, con sorteos aleatorios, enfrentamientos en serie, clasificación en directo y campeón final. El máximo de 32 es una **decisión del proyecto**, no una garantía de capacidad de la plataforma.
+- **Disco de tamaño S, M o L**, a seleccionar al crear la sala.
+- **Duración configurable**: 1, 1:30, 2, 3 o 5 minutos, o sin límite.
+- **Goles configurables**: 3, 5, 7, 10 o 15. Si hay empate al acabar el tiempo se juega gol de oro.
+- Poderes aleatorios: **Turbo**, **Disco gigante**, **Paleta gigante**.
+- **Chat de texto y emojis con panel flotante plegable** dentro de la sala, con mensajes limitados y control anti-spam básico.
+- **Chat de voz experimental** en 1 vs. 1 y 2 vs. 2 usando WebRTC + STUN. Necesita permiso de micrófono. **No usa TURN:** en algunas redes o restricciones NAT puede no conectar. No se garantiza voz en todos los teléfonos. El audio no se guarda en el servidor.
+- **Música de fondo (mezcla incluida) y efectos independientes**, con control de volumen del 0 al 100 %, sonido de impactos, rebotes y goles.
+- **Interfaz liquid glass** ligera, efectos de partículas y animación al marcar.
+- Física de colisiones con subpasos, huecos reales en las porterías y mejor respuesta local al dedo.
+- Dibujo Canvas con pista prerenderizada, DPR móvil limitado a 1.35, menos mensajes de movimiento y frecuencia reducida para espectadores de torneos.
+- **PWA instalable** (iconos 180/192/512, manifiesto, service worker). En iPhone: Safari > Compartir > Añadir a pantalla de inicio; en Android: Chrome > Instalar app / Añadir a pantalla de inicio. El juego requiere Internet para multijugador.
+- Botón para solicitar pantalla completa donde el navegador lo permita.
 
-## 🚀 Opción recomendada: publicar desde Cloudflare + GitHub (sin terminal)
+## 🎵 Música de fondo incluida
 
-1. Crea cuentas gratuitas en https://github.com y https://dash.cloudflare.com (si todavía no las tienes).
-2. **Descomprime el ZIP** y crea un repositorio nuevo en GitHub, por ejemplo `air-hockey-duo-gratis`.
-3. Sube **todos los archivos y carpetas** del proyecto al nivel principal del repositorio. Es muy importante que `wrangler.jsonc`, `package.json`, `src/` y `public/` estén en la raíz, no dentro de otra carpeta.
-4. En Cloudflare, abre **Workers & Pages → Create application → Import a repository / GitHub** (los nombres pueden variar), concede el acceso y selecciona el repositorio.
-5. Establece el nombre del Worker como **`air-hockey-duo-gratis`**, exactamente igual al campo `name` de `wrangler.jsonc`. Si la interfaz requiere un comando de despliegue, usa **`npx wrangler deploy`**. No hace falta ejecutar una compilación del frontend.
-6. Pulsa **Save and Deploy**. Confirma que aparezca una dirección similar a `https://air-hockey-duo-gratis.TU-SUBDOMINIO.workers.dev`.
-7. En el primer teléfono, abre esa URL y pulsa **CREAR SALA PRIVADA**. Comparte el enlace desde el botón **INVITAR** con tu pareja.
-8. En el otro celular, abre el enlace. Al conectarse ambos, comienza automáticamente una cuenta regresiva y ya pueden jugar.
+- El archivo `public/music.m4a` contiene **la mezcla que adjuntó el usuario**, convertida a AAC de baja tasa para móvil, aproximadamente 62 minutos y ~24 MB. Se reproduce bajo demanda, cuando el jugador pulsa ▶ en el panel ♫; **no se descarga ni inicia automáticamente** al entrar en la sala, para priorizar la fluidez del juego.
+- Los controles Música, Efectos, Chat y Participantes ahora están **plegados por defecto**; aparecen como pequeños botones en la barra superior. Abrir uno cierra automáticamente los demás, y ninguno hace más pequeña la pista. En torneos se añade el botón 🏆 y la tabla final se abre automáticamente al terminar.
+- Si decides publicar esta pista para otras personas, **asegúrate de contar con derechos de distribución y comunicación pública** de la música incluida. Una canción comercial no se vuelve libre de derechos por ser un juego gratuito.
 
-Documentación oficial de Cloudflare para conectar GitHub: https://developers.cloudflare.com/workers/ci-cd/builds/
+## Publicar la actualización en tu repositorio actual
 
-### Si Cloudflare no muestra GitHub como opción
+Tu proyecto ya publicado es `air-hockey-duo` en GitHub y Cloudflare; **no necesitas crear otro proyecto**.
 
-El método más confiable es publicar desde un computador usando Wrangler, como se explica a continuación.
+1. Descarga el ZIP de la versión 4.0 y descomprímelo en Windows.
+2. En GitHub entra al repositorio actual: `https://github.com/DivisioncomercialindustrialRXGH/air-hockey-duo`.
+3. Sustituye/actualiza los archivos dentro de sus mismas rutas (`public/`, `src/`, `test/`, `package.json`, `wrangler.jsonc`, etc.). No subas la carpeta contenedora ni el ZIP como archivo único. Para una actualización de múltiples archivos, GitHub Desktop puede resultar más sencillo que el editor web.
+4. Guarda los cambios en la rama `main` mediante un **commit**.
+5. En Cloudflare, abre **Workers & Pages → air-hockey-duo → Deployments/Builds** y observa el siguiente despliegue automático. Si fuera necesario, pulsa **Retry build**.
+6. El nombre del Worker es ahora `air-hockey-duo`, exactamente como tu despliegue real anterior, para evitar la advertencia por nombre diferente. Conserva `npx wrangler deploy` como comando de despliegue.
+7. El enlace del juego continuará siendo `https://air-hockey-duo.global-realtor1.workers.dev`, siempre que tu cuenta y subdominio permanezcan iguales.
 
-## 💻 Alternativa: publicar desde un computador
+**No copies archivos por encima de un juego publicado antes de guardar una copia de la versión anterior.** Esta nueva versión pasó pruebas locales, pero **todavía no fue desplegada ni probada en ocho celulares reales**. Se recomienda primero probar el duelo 1 vs. 1 y después probar las salas grandes. La voz está marcada como experimental por esta razón.
 
-Instala Node.js 20 o posterior y abre una terminal en esta carpeta (descomprimida):
+## Pruebas locales
 
-```bash
+Con Node.js 20 o posterior:
+
+```sh
 npm install
 npm run check
-npx wrangler login
-npm run deploy
-```
-
-La primera vez, Wrangler te pedirá autorizar tu cuenta de Cloudflare en el navegador y configurar un subdominio `workers.dev` si todavía no tienes uno. Guarda el enlace HTTPS resultante; es el enlace que usarán ambos celulares.
-
-### Probar localmente antes de publicar
-
-```bash
-npm install
 npm run dev
 ```
 
-Abre la URL que muestre Wrangler, normalmente `http://localhost:8787`, para probar la interfaz en tu computador. Para jugar **entre celulares distintos** se necesita una dirección HTTPS accesible por internet; `localhost` no es suficiente.
+Tests del motor y backend incluyen: conexión y reconexión, gol, rebote, salas llenas, 2 vs. 2, 4 vs. 4, chat y un torneo completo con campeón. También se comprobó en Chromium local la renderización del inicio, configuración de salas, pista, volumen y chat con un WebSocket simulado; **esto no equivale a prueba multijugador real**.
 
-## 💸 ¿De verdad es gratis?
+## Costos
 
-- **Sí, con Workers Free**, respetando las cuotas vigentes del proveedor, que pueden cambiar. No se necesita contratar el plan Workers Paid para usar este proyecto.
-- **Durable Objects debe estar respaldado por SQLite**: la migración `new_sqlite_classes` ya está incluida en `wrangler.jsonc`.
-- Según la documentación consultada en noviembre de 2026, Durable Objects Free incluye 100.000 solicitudes facturables al día y 13.000 GB-s de duración al día. Los mensajes WebSocket entrantes se convierten a solicitudes en una proporción de **20:1** para el cómputo de solicitudes. Las respuestas WebSocket salientes no se cobran como solicitudes.
-- Si se agotan los recursos gratuitos, Cloudflare puede rechazar operaciones hasta que se renueve la cuota. **No ofrece tiempo de juego ilimitado garantizado**.
+El proyecto no necesita base de datos externa ni servidores de pago mientras **permanezca dentro de los límites de Cloudflare Workers y Durable Objects Free**. La sincronización física funciona exclusivamente en el servidor de Cloudflare. El chat de voz es peer-to-peer mediante WebRTC, sin servidor TURN; si necesitas voz garantizada en redes difíciles, podría requerir infraestructura adicional y coste.
 
-Precios y límites oficiales: https://developers.cloudflare.com/durable-objects/platform/pricing/
+## Seguridad y privacidad
 
-## 📁 Estructura
+Las salas tienen códigos de seis caracteres; son privadas en la práctica, pero **no constituyen un sistema de autenticación fuerte**. No compartas públicamente enlaces de sala si deseas restringir el acceso. Chat y nombres se guardan temporalmente en el Durable Object; los mensajes no están cifrados de extremo a extremo. La sala se elimina tras inactividad. No envíes información privada por el chat.
 
-```text
-air-hockey-duo-cloudflare/
-├── wrangler.jsonc          # Worker, archivos estáticos y Durable Object SQLite
-├── package.json            # Comandos npm y Wrangler
-├── src/
-│   ├── worker.js           # WebSocket, salas, sincronización y persistencia
-│   └── physics.js          # Colisiones, gol, paletas, cronómetro y marcador
-├── public/
-│   ├── index.html          # Interfaz de bienvenida y pista
-│   ├── game.js             # Juego táctil, Canvas, invitación y reconexión
-│   ├── styles.css          # Estética neón y adaptable a celulares
-│   ├── favicon.svg
-│   └── manifest.webmanifest
-└── test/
-    ├── backend.test.js     # Tests de multijugador y reconexión
-    └── physics.test.js     # Tests de reglas y física
-```
+## Archivos importantes
 
-## ¿Cómo funciona?
+- `src/worker.js` — Motor de salas, WebSockets, chat, señalización opcional de voz, clasificación y persistencia.
+- `src/physics.js` — Colisiones, paletas, poderes, tamaños y límites de la pista.
+- `src/tournament.js` — Sorteos, rondas, ganadores y tabla final.
+- `public/game.js` — Canvas, input táctil, predicción, sonido, chat y WebRTC opcional.
+- `public/music.m4a` — Mezcla completa adjuntada por el usuario, comprimida para móvil; exige derechos antes de alojarla públicamente.
+- `public/sw.js` — Service worker para instalar la web como PWA.
+- `public/index.html`, `public/styles.css` — Interfaz liquid glass adaptada a móviles.
+- `test/*.test.js` — Pruebas automatizadas.
 
-1. Ambos teléfonos se conectan por **`wss://`** a la misma aplicación de Cloudflare.
-2. El **Durable Object** gestiona las salas, asigna un puesto único a cada jugador y calcula la física en el servidor. Las coordenadas de cada teléfono se convierten para que ambos vean **su portería abajo**.
-3. El servidor actualiza las partidas a 60 pasos de simulación/s y retransmite hasta 30 estados/s.
-4. El jugador reconecta con un token guardado localmente; su sitio se reserva durante 2 minutos si se desconecta.
-5. Cuando las salas están inactivas, el sistema utiliza WebSocket Hibernation API para reducir el consumo de recursos.
+## Actualización rápida sin recrear Cloudflare
 
-**Privacidad:** el código de sala es una invitación privada casual, no una contraseña fuerte. No hay cuentas ni almacenamiento de datos personales fuera del nombre escogido, un token de reconexión y los datos de la partida. No compartas públicamente el enlace si no quieres recibir intentos de conexión de terceros.
+**Método recomendado:** GitHub Desktop (gratis). Abre tu repositorio en GitHub, pulsa `Code > Open with GitHub Desktop`, clónalo, copia **el contenido** de este ZIP dentro de esa carpeta, conserva la estructura `src/`, `public/`, `test/`, y luego `Commit to main` + `Push origin`. Cloudflare Workers Builds detecta el nuevo commit en `main` y vuelve a desplegar el mismo Worker `air-hockey-duo`. Verifica en su pestaña Deployments/Builds que terminó en Success.
 
-## Solución de problemas
+**Desde GitHub web:** `Add file > Upload files` permite subir archivos, pero para sustitución masiva y arrastrar carpetas es más fácil GitHub Desktop. Nunca subas la carpeta contenedora del ZIP como subcarpeta del repositorio, ni subas el ZIP en lugar de los archivos.
 
-- **Solo aparece la pantalla pero no conecta**: comprueba que publicaste el Worker completo, no solamente la carpeta `public/`; revisa que Cloudflare haya creado la migración Durable Object `HockeyHub`.
-- **El enlace dice que no existe la sala**: crea una sala nueva en el primer teléfono y comparte el enlace actualizado.
-- **Se queda en «Esperando rival»**: el segundo jugador debe entrar en **la misma URL con `?sala=CODIGO`**, o escribir el código de seis caracteres.
-- **Error de publicación por nombre**: revisa que en Cloudflare y `wrangler.jsonc` aparezca `air-hockey-duo-gratis`.
-- **Problemas con permisos gratuitos**: comprueba el plan Workers Free y los límites de Durable Objects de tu cuenta.
-
----
-
-**Estado:** versión 2.0 lista para desplegar; pruebas locales automatizadas satisfactorias. Falta verificar el funcionamiento real tras publicar en Cloudflare.
+**Precaución de sesiones:** cuando cambias el código del Durable Object, las salas en curso pueden interrumpirse; avisa a los jugadores y haz el despliegue entre partidas.

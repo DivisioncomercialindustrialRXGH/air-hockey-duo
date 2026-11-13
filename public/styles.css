@@ -12,3 +12,86 @@ body:before{content:"";position:fixed;inset:0;background-image:linear-gradient(r
 @media(min-width:700px){.hero{padding-top:42px}.hero-art{height:175px;transform:scale(1.12);margin-bottom:22px}.home-panel{padding:29px}}
 @media(max-width:430px){.app{padding:0 14px}.topbar{height:60px}.brand{font-size:12px}.brand-icon{height:27px;width:27px}.connection{font-size:9px;letter-spacing:.6px}.hero{padding-top:14px}.hero-art{height:107px;transform:scale(.78);margin-bottom:0}.hero h1{font-size:49px;letter-spacing:-2px}.hero p{font-size:12px;margin:12px auto}.hero .eyebrow{font-size:9px}.home-panel{padding:17px}.panel-header{margin-bottom:12px}.home-note{padding:12px 0}.footer{padding-bottom:13px}.arena-frame{width:min(100%,505px,calc((100dvh - 227px)*.5555556))}.game-toolbar{padding:9px 0 5px}.game-bottom{padding:7px 0}.scoreboard{padding:2px 0 7px}}
 @media(max-height:700px){.topbar{height:53px}.hero{padding-top:2px}.hero-art{height:87px;transform:scale(.62);margin-bottom:-5px}.hero h1{font-size:40px}.hero p{font-size:11px;line-height:1.3;margin:8px auto}.feature-tags span{padding:5px 6px}.home-panel{padding:13px}.home-note{padding:8px 0}.footer{padding:6px 0 10px}.panel-header{margin-bottom:8px}.primary-button{height:42px;margin-top:8px}.text-input{height:41px}.or-line{margin:12px 0}.arena-frame{width:min(100%,505px,calc((100dvh - 185px)*.5555556))}.game-toolbar{padding:3px 0}.scoreboard{padding:2px 0}.game-bottom{padding:3px 0}.score-number{font-size:25px}}
+/* DUO 2.0: setup, power status and installable app */
+.options-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:15px}.option-cell{min-width:0}.select-input{width:100%;height:43px;border-radius:9px;color:#ecf5ff;background:#0d1c32;border:1px solid #6a9cc14f;padding:0 10px;font-size:12px;font-weight:750;outline:none}.select-input:focus{border-color:#51e5ff}.puck-label{margin-top:17px}.puck-sizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.size-choice input{position:absolute;opacity:0;width:1px;height:1px}.size-choice span{display:flex;align-items:center;justify-content:center;gap:6px;min-height:45px;border:1px solid #49678b61;border-radius:9px;background:#0e1c32;color:#a9bdd9;font-weight:950;font-size:13px;transition:background .2s,border .2s}.size-choice small{font-size:8px;color:#8093aa;letter-spacing:.3px}.size-choice input:checked+span{color:#51e5ff;border-color:#51e5ff;background:#103149;box-shadow:inset 0 0 18px #16d1ff13}.size-choice input:focus-visible+span{outline:2px solid white}.puck-preview{display:inline-block;border-radius:50%;background:radial-gradient(circle at 35% 32%,#fff,#9bdcff 63%,#2677a0);box-shadow:0 0 8px #88efff55}.puck-s{height:10px;width:10px}.puck-m{height:14px;width:14px}.puck-l{height:20px;width:20px}.power-setting{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:800;color:#e4f3ff;margin-top:16px;cursor:pointer}.power-setting input{accent-color:#51e5ff;width:18px;height:18px;flex-shrink:0}.power-setting small{display:block;font-size:10px;font-weight:550;color:#7ca7c8;margin-top:2px}.install-button{display:block;margin:0 auto 12px;color:#a4eafa;background:#0a2334;border:1px solid #56c5e34f;border-radius:9px;font-size:11px;font-weight:850;letter-spacing:.4px;padding:10px 16px}.install-help{text-align:center;max-width:430px;margin:0 auto 12px;padding:12px;color:#bbdaec;background:#0c263e;border:1px solid #58bceb4d;border-radius:9px;font-size:12px;line-height:1.6}.game-timer{font-size:19px!important;line-height:1.05;color:#e5f4ff!important;font-variant-numeric:tabular-nums}.game-timer.overtime{font-size:12px!important;color:#ffce62!important}.active-power{min-height:26px;padding:4px 10px;border-radius:10px;background:#1c2c45;color:#aeefff;border:1px solid #53cfff55;text-align:center;font-size:11px;font-weight:900;letter-spacing:.5px;animation:power-breath 1.4s infinite alternate}.active-power.hidden{display:none}@keyframes power-breath{to{box-shadow:0 0 17px #53ceff24}}.arena-frame:fullscreen{width:min(100vw,55.55dvh)!important;max-width:100vw;height:100dvh;max-height:100dvh;aspect-ratio:5/9;border-radius:0;margin:auto}.arena-frame:fullscreen canvas{height:100%;width:100%}.home-panel{padding-bottom:20px}@media(max-height:700px){.home-panel{padding:13px}.options-grid{margin-top:10px}.puck-label{margin-top:10px}.power-setting{margin-top:10px}}@media(prefers-reduced-motion:reduce){.art-puck,.active-power{animation:none!important}}
+/* ARENA 4.0 — liquid glass restrained for mobile GPUs */
+:root{--glass:rgba(185,224,255,.085);--glass-outline:rgba(212,240,255,.25)}
+.home-panel,.glass-panel{background:linear-gradient(140deg,rgba(222,243,255,.13),rgba(85,167,219,.08) 45%,rgba(55,101,162,.1));border:1px solid var(--glass-outline);box-shadow:0 10px 32px rgba(0,8,28,.2),inset 0 1px rgba(255,255,255,.21);border-radius:20px}
+@supports(backdrop-filter:blur(10px)){.home-panel,.glass-panel{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}}
+.home-panel .select-input,.home-panel .text-input,.audio-panel,.chat-panel{box-shadow:inset 0 1px rgba(255,255,255,.11)}
+.mode-input{margin-bottom:10px;min-height:45px}
+.tournament-option{padding:10px 0 4px}
+.option-help{font-size:11px;color:#9fc9dd;line-height:1.5;margin:5px 0}
+.toolbar-actions{display:flex;gap:5px;align-items:center;flex-shrink:0}
+.game-mode{flex:1;justify-content:center;font-size:9px;min-width:0}
+.game-mode #toolbar-mode{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.game-mode strong{letter-spacing:1px;font-size:10px}
+.game-toolbar .icon-button{width:33px;height:33px;font-size:18px}
+.audio-panel{padding:13px;margin:4px auto 8px;width:min(100%,505px);display:grid;gap:10px}
+.slider-item{display:grid;grid-template-columns:135px minmax(40px,1fr) 35px;align-items:center;gap:8px;font-size:11px;color:#e0f1ff}
+.slider-item input{min-width:0;max-width:100%;accent-color:#50e5ff}
+.slider-item span{color:#8af0ff;font-variant-numeric:tabular-nums;text-align:right}
+.audio-note{font-size:10px;color:#95adc5}
+.players-status{font-size:10px;text-align:center;color:#b7dbf2;width:min(100%,505px);margin:3px 0 6px;padding:7px 8px;border-radius:9px}
+.tournament-panel{width:min(100%,505px);padding:10px 13px;margin:4px 0 8px}
+.tournament-panel:not(.expanded) .ranking{max-height:95px;overflow:auto}
+.section-head{display:flex;align-items:center;justify-content:space-between;color:#d2f3ff;font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px}
+.ranking{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:5px}
+.rank-person{padding:7px 8px;border-radius:8px;background:rgba(12,27,54,.55);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px}
+.rank-person .rank-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px}
+.rank-person em{font-style:normal;font-size:9px;color:#9ab6da}
+.rank-person.champion{border:1px solid #ffe08066;color:#ffdf8a}
+.chat-panel{width:min(100%,505px);margin:8px auto 12px;padding:12px}
+.close-mini{border:0;background:none;color:#bbcee4;font-size:18px}
+.chat-messages{max-height:158px;min-height:60px;overflow-y:auto;overscroll-behavior:contain;padding:3px 0;display:flex;flex-direction:column;gap:6px}
+.chat-line{font-size:12px;line-height:1.4;color:#dce9fd;padding:7px 9px;background:rgba(4,15,36,.42);border-radius:10px;overflow-wrap:anywhere}
+.chat-line strong{color:#77ddf7;margin-right:5px}
+.chat-line.mine{background:rgba(38,153,193,.18)}
+.emoji-row{display:flex;justify-content:space-between;gap:5px;margin:10px 0}
+.emoji-row button{border:1px solid rgba(255,255,255,.1);background:rgba(212,237,255,.09);border-radius:9px;font-size:18px;padding:5px;flex:1}
+.chat-form{display:flex;gap:7px}
+.chat-form input{flex:1;min-width:0;border-radius:9px;border:1px solid #7a9cba60;background:#0c2036;color:white;padding:10px;font-size:12px}
+.chat-form button{border:0;border-radius:9px;background:#76dff7;color:#0b2530;font-size:10px;font-weight:900;padding:8px 12px}
+#voice-btn.active{background:rgba(51,241,172,.18);color:#70ffc8;border-color:#76f7bc88}
+#voice-btn:disabled{opacity:.35;cursor:not-allowed}
+#chat-toggle.unread{border-color:#fff28a;box-shadow:0 0 12px #ffeb6d66}
+.arena-frame{isolation:isolate;contain:layout paint}
+.game-overlay .overlay-panel{background:linear-gradient(125deg,rgba(28,59,95,.78),rgba(10,22,45,.75));border:1px solid rgba(213,247,255,.3);backdrop-filter:blur(11px);-webkit-backdrop-filter:blur(11px);border-radius:19px}
+.game-overlay.transparent .overlay-panel{backdrop-filter:none;-webkit-backdrop-filter:none}
+@media(max-width:440px){.game-mode{gap:4px}.game-mode #toolbar-mode{max-width:50px}.game-toolbar .icon-button{width:31px;height:31px;font-size:16px}.slider-item{grid-template-columns:112px minmax(40px,1fr) 31px}.game-bottom{font-size:9px}.topbar{height:55px}.arena-frame{width:min(100%,505px,calc((100dvh - 270px)*.55555))}}
+@media(max-height:720px){.players-status{font-size:9px;padding:5px}.game-toolbar{padding:2px 0}.arena-frame{width:min(100%,505px,calc((100dvh - 225px)*.55555))}}
+@media(prefers-reduced-motion:reduce){.ambient{display:none}.active-power{animation:none!important}}
+
+/* Acceso a la música sin bloquear el render de la pista */
+.music-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.music-control{min-height:40px;padding:8px 14px;border:1px solid rgba(255,255,255,.24);border-radius:14px;font-weight:800;letter-spacing:.025em;white-space:nowrap;background:rgba(255,255,255,.065);color:#e7f4ff;cursor:pointer;}
+.music-control:disabled{opacity:.6;cursor:not-allowed;}
+.music-actions .audio-note{flex:1 1 175px;line-height:1.35;}
+@media (max-width:425px){.music-control{flex:1 1 auto;}.music-actions .audio-note{flex:1 1 100%;}}
+
+
+/* ARENA 4.1 — controles flotantes: la pista nunca pierde altura al abrir chat o sonido */
+.game-toolbar .icon-button{transition:transform .15s ease,background .15s ease,border-color .15s ease;flex:0 0 auto}
+.game-toolbar .icon-button.selected{color:#eaffff;background:linear-gradient(145deg,rgba(90,217,255,.25),rgba(113,154,255,.13));border-color:rgba(176,234,255,.72);box-shadow:inset 0 1px rgba(255,255,255,.2),0 4px 15px #52dfff22;transform:translateY(-1px)}
+.hud-drawer{position:fixed!important;z-index:90;top:clamp(105px,18dvh,160px);right:max(12px,calc((100vw - 820px)/2 + 20px));width:min(355px,calc(100vw - 24px))!important;max-height:min(70dvh,560px);overflow-y:auto;overscroll-behavior:contain;padding:15px!important;margin:0!important;isolation:isolate;border-radius:22px!important;background:linear-gradient(145deg,rgba(48,77,117,.91),rgba(12,27,52,.93) 55%,rgba(16,34,62,.96))!important;border:1px solid rgba(201,244,255,.35)!important;box-shadow:0 24px 58px rgba(0,4,25,.52),inset 0 1px rgba(255,255,255,.24)!important;animation:sheet-pop .18s ease-out both;}
+@supports (backdrop-filter:blur(8px)){.hud-drawer{backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;color:#e2faff;font-size:11px;font-weight:900;letter-spacing:1px;}
+.hud-drawer .close-mini{border:1px solid rgba(231,250,255,.2);border-radius:9px;background:rgba(255,255,255,.07);width:32px;height:32px;display:grid;place-items:center;flex-shrink:0;color:#ecfaff;}
+.hud-drawer .slider-item{grid-template-columns:128px minmax(40px,1fr) 33px;}
+.hud-drawer .chat-messages{min-height:115px;max-height:min(32dvh,240px);}
+.hud-drawer .section-head{gap:8px;}
+.hud-drawer .section-head .close-mini{margin-left:auto;}
+.hud-drawer .ranking{max-height:min(48dvh,340px)!important;overflow:auto;}
+.hud-drawer .audio-note{color:#c0d6e8}
+#players-status-text{color:#e2faff;font-size:12px;text-align:left;line-height:1.6;padding:5px 2px}
+@keyframes sheet-pop{from{opacity:0;transform:translateY(-6px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:440px){
+  .hud-drawer{top:calc(env(safe-area-inset-top) + 91px);right:10px;width:min(355px,calc(100vw - 20px))!important;max-height:calc(100dvh - 120px)}
+  .hud-drawer .slider-item{grid-template-columns:115px minmax(40px,1fr) 34px}
+  .game-toolbar{gap:3px}
+  .toolbar-actions{gap:3px}
+  .game-toolbar .icon-button{width:31px;height:32px}
+  .arena-frame{width:min(100%,505px,calc((100dvh - 225px)*.55555))}
+}
+@media(max-width:370px){.game-mode #toolbar-mode,.game-mode .game-divider{display:none}.game-mode strong{letter-spacing:.5px;font-size:9px}.toolbar-actions{gap:1px}.game-toolbar .icon-button{width:30px;height:31px;font-size:15px}}
+@media(prefers-reduced-motion:reduce){.hud-drawer{animation:none}}

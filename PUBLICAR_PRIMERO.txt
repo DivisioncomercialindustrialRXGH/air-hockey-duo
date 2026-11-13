@@ -1,21 +1,11 @@
-AIR HOCKEY DUO — GUÍA RÁPIDA CLOUDFLARE GRATIS
+AIR HOCKEY DUO ARENA 4.1
 
-1. Descomprime este ZIP.
-2. Sube a un repositorio de GitHub los archivos y carpetas del proyecto
-   (wrangler.jsonc, package.json, src, public, test, README.md).
-3. En https://dash.cloudflare.com abre Workers & Pages.
-4. Crea una aplicación, elige GitHub e importa ese repositorio.
-5. Nombre: air-hockey-duo-gratis (igual que wrangler.jsonc).
-6. Comando de deploy: npx wrangler deploy
-7. Al publicarlo, abre el enlace HTTPS workers.dev desde dos teléfonos.
-8. El primero crea la sala y comparte el enlace con el segundo.
+1. Extrae el ZIP: los archivos están en su raíz.
+2. Clona tu repositorio air-hockey-duo con GitHub Desktop.
+3. Copia contenido extraído en la carpeta clonada, aceptando reemplazos.
+4. En GitHub Desktop: Commit to main y Push origin.
+5. Cloudflare despliega el mismo Worker automáticamente.
+6. Comprueba el enlace habitual.
 
-Si prefieres terminal:
-  npm install
-  npm run check
-  npx wrangler login
-  npm run deploy
-
-IMPORTANTE: Es gratuito dentro de las cuotas de Workers Free.
-No se ha probado aún en Cloudflare de producción.
-Documentación completa: README.md
+La mezcla adjunta está en public/music.m4a. Verifica derechos para distribución pública.
+Los paneles de chat, música, participantes y torneo quedan plegados.

@@ -1,282 +1,257 @@
-/**
- * Air Hockey DUO on Cloudflare Workers Free + SQLite Durable Objects.
- * ONE hub Durable Object handles small, private rooms; physics are authoritative.
- * Its hibernatable WebSockets sleep when nobody is actively playing.
- */
+/** Air Hockey DUO — Cloudflare Workers Free / hibernatable Durable Object (SQLite). */
 import { DurableObject } from 'cloudflare:workers';
 import {
-  W, H, PADDLE_R, TICK_RATE, SEND_RATE, WIN_SCORE,
-  clamp, makeRoom, countdown, movePaddles, stepPuck
+  W,H,TICK_RATE,SEND_RATE,PADDLE_R,clamp,makeRoom,countdown,movePaddles,stepPuck,
+  puckRadius,paddleRadius,updatePower,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle
 } from './physics.js';
+import {
+  initializeTournament,prepareTournamentMatch,finishTournamentMatch,leaderboard
+} from './tournament.js';
 
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const ROOM_TTL = 30 * 60 * 1000;
-const SEAT_TTL = 2 * 60 * 1000;
-const MAX_ROOMS = 60; // Personal-use capacity guard; reconnect is always allowed.
-const isConnected = ws => Boolean(ws && ws.readyState === 1);
-const cleanRoomCode = code => typeof code === 'string' ? code.trim().toUpperCase() : '';
-
-const json = (data, status = 200) => new Response(JSON.stringify(data), {
-  status,
-  headers: {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff'
-  }
-});
-
+const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ROOM_TTL=30*60*1000, SEAT_TTL=2*60*1000, MAX_ROOMS=45;
+const online=ws=>Boolean(ws&&ws.readyState===1);
+const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true, platform: 'cloudflare' });
-    if (url.pathname === '/ws') {
-      if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-        return json({ error: 'Se requiere una conexión WebSocket' }, 426);
-      }
-      // A third-party page should not be able to drive a user's WebSocket session.
-      const origin = request.headers.get('Origin');
-      if (origin && new URL(origin).host !== url.host) return json({ error: 'Origen no autorizado' }, 403);
-      const hub = env.HOCKEY_HUB.get(env.HOCKEY_HUB.idFromName('duo-hub-v1'));
-      return hub.fetch(request);
+  async fetch(request,env){
+    const url=new URL(request.url);
+    if(url.pathname==='/health')return respond({ok:true,release:'4.0',platform:'cloudflare'});
+    if(url.pathname==='/ws'){
+      if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
+      const origin=request.headers.get('Origin');
+      try{if(origin&&new URL(origin).host!==url.host)return respond({error:'Origen no autorizado'},403);}catch{return respond({error:'Origen inválido'},403);}
+      return env.HOCKEY_HUB.get(env.HOCKEY_HUB.idFromName('duo-hub-v1')).fetch(request);
     }
     return env.ASSETS.fetch(request);
   }
 };
-
 export class HockeyHub extends DurableObject {
-  constructor(ctx, env) {
-    super(ctx, env);
-    this.rooms = new Map();
-    this.timer = null;
-    this.frame = 0;
-    // Restore the lobby after an idle WebSocket hibernation or Worker restart.
-    ctx.blockConcurrencyWhile(async () => {
-      const records = await ctx.storage.get('rooms') || [];
-      for (const [code, record] of records) {
-        const room = {
-          ...makeRoom(code), ...record,
-          players: (record.players || [null, null]).map(p => p ? { ...p, ws: null } : null)
-        };
-        this.rooms.set(code, room);
+  constructor(ctx,env){
+    super(ctx,env);
+    this.rooms=new Map();this.timer=null;this.frame=0;this.lastTickAt=performance.now();
+    ctx.blockConcurrencyWhile(async()=>{
+      const records=await ctx.storage.get('rooms')||[];
+      for(const [code,data] of records){
+        const room={...makeRoom(code,data.settings),...data,players:(data.players||[]).map(p=>p?{...p,ws:null}:null)};
+        room.chat=Array.isArray(room.chat)?room.chat:[];
+        room.voiceReady=Array.from({length:room.players.length},()=>false);
+        this.rooms.set(code,room);
       }
-      for (const ws of ctx.getWebSockets()) {
-        const attachment = ws.deserializeAttachment();
-        if (!attachment) continue;
-        const player = this.rooms.get(attachment.roomCode)?.players?.[attachment.seat];
-        if (player && player.token === attachment.token && isConnected(ws)) {
-          player.ws = ws;
-          player.disconnectedAt = 0;
+      for(const ws of ctx.getWebSockets()){
+        const a=ws.deserializeAttachment();const p=this.rooms.get(a?.roomCode)?.players?.[a?.seat];
+        if(p?.token===a?.token&&online(ws)){p.ws=ws;p.disconnectedAt=0;}
+      }
+      for(const r of this.rooms.values()){
+        if(['playing','countdown','goal','overtime','tournament_wait'].includes(r.phase)){
+          r.phase='paused';r.pauseMessage='Reconectando con la partida';
         }
+        this.maybeStart(r);
       }
-      for (const room of this.rooms.values()) {
-        if (['countdown', 'goal', 'playing'].includes(room.phase)) {
-          room.phase = 'paused';
-          room.pauseMessage = 'Se ha recuperado la conexión';
-        }
-        if (room.players.every(p => isConnected(p?.ws)) && room.phase === 'paused') countdown(room);
-      }
-      this.prune();
-      this.updateTimer();
+      this.prune();this.updateTimer();
     });
   }
-
-  async fetch(request) {
-    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'WebSocket requerido' }, 426);
-    if (this.ctx.getWebSockets().length >= 120) return json({ error: 'Demasiadas conexiones' }, 429);
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    this.ctx.acceptWebSocket(server);
-    return new Response(null, { status: 101, webSocket: client });
+  async fetch(request){
+    if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
+    if(this.ctx.getWebSockets().length>=120)return respond({error:'Demasiadas conexiones'},429);
+    const pair=new WebSocketPair();const [client,server]=Object.values(pair);this.ctx.acceptWebSocket(server);
+    return new Response(null,{status:101,webSocket:client});
   }
-
-  send(ws, data) {
-    if (!isConnected(ws)) return;
-    try { ws.send(JSON.stringify(data)); } catch { /* Disconnect handler will run. */ }
+  send(ws,value){if(!online(ws))return;try{ws.send(JSON.stringify(value));}catch{}}
+  broadcast(room,value){for(const p of room.players)this.send(p?.ws,value);}
+  activeConnected(room){
+    if(room.settings.mode==='tournament'&&room.phase==='tournament_wait')return room.players.some(p=>online(p?.ws));
+    const required=room.settings.mode==='tournament'?room.activeSeats:room.players.map((_,i)=>i);
+    return required.length>=2&&required.every(i=>online(room.players[i]?.ws));
   }
-  broadcast(room, data) {
-    for (const p of room.players) this.send(p?.ws, data);
-  }
-  attached(room) {
-    return room.players.every(p => p && isConnected(p.ws));
-  }
-  notify(room) {
-    const now = Date.now();
-    this.broadcast(room, {
-      type: 'state', phase: room.phase,
-      players: room.players.map(p => p ? { name: p.name, connected: isConnected(p.ws) } : null),
-      scores: room.scores, paddles: room.paddles.map(p => ({ x: p.x, y: p.y })),
-      puck: room.puck, phaseEnd: room.phaseEnd, serverNow: now,
-      winner: room.winner, goalBy: room.goalBy, pauseMessage: room.pauseMessage
+  full(room){return room.players.every(p=>p&&online(p.ws));}
+  notify(room){
+    const stamp=Date.now();
+    const state={
+      type:'state',code:room.code,phase:room.phase,
+      players:room.players.map(p=>p?{name:p.name,connected:online(p.ws)}:null),
+      scores:room.scores,paddles:room.paddles.map(p=>({x:p.x,y:p.y})),
+      puck:{...room.puck,r:puckRadius(room)},settings:room.settings,
+      remainingMs:room.remainingMs,power:room.power,effect:room.effect,
+      event:room.lastEvent,phaseEnd:room.phaseEnd,serverNow:stamp,
+      winner:room.winner,goalBy:room.goalBy,pauseMessage:room.pauseMessage,
+      activeSeats:room.activeSeats,voiceReady:room.voiceReady||[],
+      tournament:room.tournament?{
+        started:room.tournament.started,finished:room.tournament.finished,
+        round:room.tournament.round,champion:room.tournament.champion,
+        history:room.tournament.history,ranking:leaderboard(room)
+      }:null
+    };
+    const watching=room.settings.mode==='tournament'&&['playing','overtime'].includes(room.phase);
+    const spectatorFrame=!watching||stamp-(room.lastSpectatorStateAt||0)>160;
+    if(spectatorFrame)room.lastSpectatorStateAt=stamp;
+    room.players.forEach((p,seat)=>{
+      if(watching&&!room.activeSeats.includes(seat)&&!spectatorFrame)return;
+      this.send(p?.ws,state);
     });
   }
-  async persist() {
-    const snapshot = Array.from(this.rooms.entries(), ([code, room]) => [code, {
-      ...room,
-      players: room.players.map(p => p ? {
-        name: p.name, token: p.token, disconnectedAt: p.disconnectedAt
-      } : null)
+  async persist(){
+    const snap=[...this.rooms.entries()].map(([code,r])=>[code,{
+      ...r,players:r.players.map(p=>p?{name:p.name,token:p.token,disconnectedAt:p.disconnectedAt}:null),
+      voiceReady:[]
     }]);
-    await this.ctx.storage.put('rooms', snapshot);
+    await this.ctx.storage.put('rooms',snap);
   }
-  prune() {
-    const now = Date.now();
-    for (const [code, room] of this.rooms) {
-      room.players.forEach((p, i) => {
-        if (p && !isConnected(p.ws) && p.disconnectedAt && now - p.disconnectedAt > SEAT_TTL) room.players[i] = null;
+  prune(){
+    const now=Date.now();
+    for(const [code,r] of this.rooms){
+      r.players.forEach((p,i)=>{
+        if(p&&!online(p.ws)&&p.disconnectedAt&&now-p.disconnectedAt>SEAT_TTL&&r.settings.mode!=='tournament')r.players[i]=null;
       });
-      if (!room.players.some(p => isConnected(p?.ws)) && now - room.lastUsed > ROOM_TTL) this.rooms.delete(code);
+      if(!r.players.some(p=>online(p?.ws))&&now-r.lastUsed>ROOM_TTL)this.rooms.delete(code);
     }
   }
-  newCode() {
-    let code;
-    do {
-      const bytes = new Uint8Array(6);
-      crypto.getRandomValues(bytes);
-      code = Array.from(bytes, b => ALPHABET[b % ALPHABET.length]).join('');
-    } while (this.rooms.has(code));
-    return code;
-  }
-  maybeStart(room) {
-    if (this.attached(room) && ['waiting', 'paused'].includes(room.phase)) countdown(room);
+  newCode(){let code;do{const b=new Uint8Array(6);crypto.getRandomValues(b);code=[...b].map(v=>LETTERS[v%LETTERS.length]).join('');}while(this.rooms.has(code));return code;}
+  maybeStart(r){
+    if(r.settings.mode==='tournament'){
+      if(!r.tournament.started && this.full(r)){
+        initializeTournament(r);
+        prepareTournamentMatch(r);
+        countdown(r);
+      }else if(r.tournament.started&&r.phase==='paused'&&this.activeConnected(r))countdown(r);
+    }else if(this.full(r)&&['waiting','paused'].includes(r.phase))countdown(r);
     this.updateTimer();
   }
-  updateTimer() {
-    const needsTicks = Array.from(this.rooms.values()).some(room =>
-      ['playing', 'countdown', 'goal'].includes(room.phase) && this.attached(room)
-    );
-    if (needsTicks && !this.timer) {
-      this.timer = setInterval(() => this.tick(), 1000 / TICK_RATE);
-    } else if (!needsTicks && this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
+  updateTimer(){
+    const need=[...this.rooms.values()].some(r=>['playing','countdown','goal','overtime','tournament_wait'].includes(r.phase)&&this.activeConnected(r));
+    if(need&&!this.timer){this.lastTickAt=performance.now();this.timer=setInterval(()=>this.tick(),1000/TICK_RATE);}
+    if(!need&&this.timer){clearInterval(this.timer);this.timer=null;}
   }
-  goal(room, scorer) {
-    room.scores[scorer]++;
-    room.goalBy = scorer;
-    room.puck.vx = room.puck.vy = 0;
-    if (room.scores[scorer] >= WIN_SCORE) {
-      room.phase = 'gameover';
-      room.winner = scorer;
-    } else {
-      room.phase = 'goal';
-      room.phaseEnd = Date.now() + 1300;
-    }
-    this.notify(room);
-    this.ctx.waitUntil(this.persist());
-    this.updateTimer();
+  goal(r,scorer){
+    r.scores[scorer]++;r.goalBy=scorer;r.puck.vx=r.puck.vy=0;
+    if(r.scores[scorer]>=r.settings.maxScore || (r.remainingMs===0&&r.scores[0]!==r.scores[1])){
+      r.winner=scorer;
+      if(r.settings.mode==='tournament'){
+        finishTournamentMatch(r,scorer);r.phase='tournament_wait';r.phaseEnd=Date.now()+2500;
+      }else r.phase='gameover';
+    }else{r.phase='goal';r.phaseEnd=Date.now()+1350;}
+    this.notify(r);this.ctx.waitUntil(this.persist());this.updateTimer();
   }
-  tick() {
+  finishOnTime(r){
+    r.winner=r.scores[0]>r.scores[1]?0:1;
+    if(r.settings.mode==='tournament'){
+      finishTournamentMatch(r,r.winner);r.phase='tournament_wait';r.phaseEnd=Date.now()+2500;
+    }else r.phase='gameover';
+  }
+  tick(){
     this.frame++;
-    const now = Date.now();
-    let phaseChanged = false;
-    for (const room of this.rooms.values()) {
-      if (!this.attached(room)) continue;
-      if (room.phase === 'countdown' && now >= room.phaseEnd) {
-        room.phase = 'playing';
-        phaseChanged = true;
+    const now=Date.now(),time=performance.now();
+    const dt=clamp((time-this.lastTickAt)/1000,1/120,1/30);this.lastTickAt=time;
+    let changed=false;
+    for(const r of this.rooms.values()){
+      if(!this.activeConnected(r))continue;
+      if(r.phase==='tournament_wait'&&now>=r.phaseEnd){
+        const match=prepareTournamentMatch(r);
+        if(!match){r.phase='champion';r.winner=null;}
+        else countdown(r);
+        changed=true;this.notify(r);
       }
-      if (room.phase === 'goal' && now >= room.phaseEnd) {
-        countdown(room, 1 - room.goalBy);
-        phaseChanged = true;
+      if(r.phase==='countdown'&&now>=r.phaseEnd){r.phase='playing';changed=true;}
+      if(r.phase==='goal'&&now>=r.phaseEnd){countdown(r,1-r.goalBy);changed=true;}
+      if(['playing','countdown','overtime'].includes(r.phase))movePaddles(r,dt);
+      if(['playing','overtime'].includes(r.phase)){
+        r.elapsedMs+=dt*1000;
+        if(r.remainingMs!==null&&r.remainingMs>0){
+          r.remainingMs=Math.max(0,r.remainingMs-dt*1000);
+          if(r.remainingMs===0){
+            if(r.scores[0]!==r.scores[1]){this.finishOnTime(r);changed=true;}
+            else{r.phase='overtime';changed=true;}
+          }
+        }
+        if(r.phase==='playing'||r.phase==='overtime'){
+          const evId=r.lastEvent.id;
+          const scorer=stepPuck(r,dt);
+          if(scorer!==null){this.goal(r,scorer);changed=true;}
+          else{updatePower(r,now);if(evId!==r.lastEvent.id)this.notify(r);}
+        }
       }
-      if (room.phase === 'playing' || room.phase === 'countdown') movePaddles(room, 1 / TICK_RATE);
-      if (room.phase === 'playing') {
-        const scorer = stepPuck(room, 1 / TICK_RATE);
-        if (scorer !== null) { this.goal(room, scorer); phaseChanged = true; }
-      }
-      if (this.frame % (TICK_RATE / SEND_RATE) === 0) this.notify(room);
+      const divisor=Math.max(1,Math.round(TICK_RATE/SEND_RATE));
+      if(this.frame%divisor===0)this.notify(r);
     }
-    if (phaseChanged) this.ctx.waitUntil(this.persist());
+    if(changed){this.updateTimer();this.ctx.waitUntil(this.persist());}
   }
-  async join(ws, msg) {
-    const code = cleanRoomCode(msg.code);
-    // First expire old rooms and disconnected seats, then look up the requested room.
-    this.prune();
-    const room = this.rooms.get(code);
-    if (!room) return this.send(ws, { type: 'error', message: 'Esa sala no existe. Comprueba el código.' });
-    if (ws.deserializeAttachment()?.roomCode) return this.send(ws, { type: 'error', message: 'Ya estás en una sala.' });
-    const requestedToken = typeof msg.token === 'string' ? msg.token : '';
-    let seat = room.players.findIndex(p => p?.token === requestedToken && requestedToken.length === 32);
-    if (seat < 0) seat = room.players.findIndex(p => p === null);
-    if (seat < 0) return this.send(ws, { type: 'error', message: 'Sala llena. Solo pueden jugar dos personas.' });
-    const requestedName = typeof msg.name === 'string' ? msg.name.trim().slice(0, 20) : '';
-    if (room.players[seat]) {
-      const player = room.players[seat];
-      if (player.ws && player.ws !== ws) {
-        try { player.ws.close(4001, 'Otra sesión conectada'); } catch {}
-      }
-      player.ws = ws;
-      player.disconnectedAt = 0;
-    } else {
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      const token = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-      room.players[seat] = { name: requestedName || `Jugador ${seat + 1}`, token, ws, disconnectedAt: 0 };
+  async join(ws,msg){
+    const code=typeof msg.code==='string'?msg.code.trim().toUpperCase():'';
+    this.prune();const r=this.rooms.get(code);
+    if(!r)return this.send(ws,{type:'error',message:'Esa sala no existe. Comprueba el código.'});
+    if(ws.deserializeAttachment()?.roomCode)return this.send(ws,{type:'error',message:'Ya estás en otra sala.'});
+    const tok=typeof msg.token==='string'?msg.token:'';
+    let seat=tok.length===32?r.players.findIndex(p=>p?.token===tok):-1;
+    if(seat<0 && r.settings.mode==='tournament'&&r.tournament?.started)return this.send(ws,{type:'error',message:'El torneo ya comenzó. No admite nuevos jugadores.'});
+    if(seat<0)seat=r.players.findIndex(p=>p===null);
+    if(seat<0)return this.send(ws,{type:'error',message:'Sala llena. Espera otra partida.'});
+    const name=typeof msg.name==='string'?msg.name.trim().slice(0,20):'';
+    if(r.players[seat]){
+      const p=r.players[seat];if(p.ws&&p.ws!==ws)try{p.ws.close(4001,'Sesión transferida');}catch{}
+      p.ws=ws;p.disconnectedAt=0;
+    }else{
+      const b=new Uint8Array(16);crypto.getRandomValues(b);const token=[...b].map(v=>v.toString(16).padStart(2,'0')).join('');
+      r.players[seat]={name:name||`Jugador ${seat+1}`,token,ws,disconnectedAt:0};
     }
-    ws.serializeAttachment({ roomCode: code, seat, token: room.players[seat].token });
-    room.lastUsed = Date.now();
-    this.send(ws, { type: 'joined', code, seat, token: room.players[seat].token, goal: WIN_SCORE });
-    this.maybeStart(room);
-    this.notify(room);
-    await this.persist();
+    ws.serializeAttachment({roomCode:code,seat,token:r.players[seat].token});
+    r.lastUsed=Date.now();
+    this.send(ws,{type:'joined',code,seat,token:r.players[seat].token,settings:r.settings,chat:r.chat||[]});
+    this.maybeStart(r);this.notify(r);await this.persist();
   }
-  async detach(ws) {
-    const info = ws.deserializeAttachment();
-    if (!info) return;
-    const room = this.rooms.get(info.roomCode);
-    const player = room?.players[info.seat];
-    if (!room || player?.ws !== ws) return;
-    player.ws = null;
-    player.disconnectedAt = Date.now();
-    room.lastUsed = Date.now();
-    if (room.phase !== 'gameover') {
-      room.phase = 'paused';
-      room.pauseMessage = `${player.name} perdió la conexión`;
+  async detach(ws){
+    const a=ws.deserializeAttachment();if(!a)return;
+    const r=this.rooms.get(a.roomCode),p=r?.players?.[a.seat];if(!r||p?.ws!==ws)return;
+    p.ws=null;p.disconnectedAt=Date.now();r.lastUsed=Date.now();r.voiceReady[a.seat]=false;
+    this.broadcast(r,{type:'voice-status',seat:a.seat,enabled:false});
+    const matchSeat=r.settings.mode==='tournament'?r.activeSeats.includes(a.seat):true;
+    if(matchSeat&&r.phase!=='gameover'&&r.phase!=='champion'&&r.phase!=='waiting'){
+      r.phase='paused';r.pauseMessage=`${p.name} perdió la conexión`;
     }
-    this.notify(room);
-    this.updateTimer();
-    await this.persist();
+    this.notify(r);this.updateTimer();await this.persist();
   }
-  async webSocketMessage(ws, message) {
-    if (typeof message !== 'string' || message.length > 2048) return;
-    let msg;
-    try { msg = JSON.parse(message); } catch { return; }
-    if (!msg || typeof msg.type !== 'string') return;
-    if (msg.type === 'create') {
-      if (ws.deserializeAttachment()?.roomCode) return;
-      this.prune();
-      if (this.rooms.size >= MAX_ROOMS) {
-        return this.send(ws, { type: 'error', message: 'Se alcanzó el límite de salas. Intenta más tarde.' });
-      }
-      const code = this.newCode();
-      this.rooms.set(code, makeRoom(code));
-      await this.join(ws, { code, name: msg.name });
-      return;
+  async webSocketMessage(ws,payload){
+    if(typeof payload!=='string'||payload.length>8192)return;
+    let msg;try{msg=JSON.parse(payload);}catch{return;}
+    if(!msg||typeof msg.type!=='string')return;
+    if(msg.type==='create'){
+      if(ws.deserializeAttachment()?.roomCode)return;
+      this.prune();if(this.rooms.size>=MAX_ROOMS)return this.send(ws,{type:'error',message:'Se alcanzó el límite temporal de salas.'});
+      const code=this.newCode();const r=makeRoom(code,sanitizeSettings(msg.settings||{}));r.chat=[];r.voiceReady=Array(r.players.length).fill(false);
+      this.rooms.set(code,r);await this.join(ws,{code,name:msg.name});return;
     }
-    if (msg.type === 'join') return this.join(ws, msg);
-    const info = ws.deserializeAttachment();
-    if (!info) return;
-    const room = this.rooms.get(info.roomCode);
-    const player = room?.players[info.seat];
-    if (!room || player?.ws !== ws || player?.token !== info.token) return;
-    if (msg.type === 'move') {
-      if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return;
-      let x = clamp(msg.x, PADDLE_R + 5, W - PADDLE_R - 5);
-      let y = clamp(msg.y, H / 2 + PADDLE_R + 5, H - PADDLE_R - 20);
-      if (info.seat === 1) { x = W - x; y = H - y; }
-      const paddle = room.paddles[info.seat];
-      paddle.tx = x;
-      paddle.ty = y;
-    } else if (msg.type === 'rematch' && room.phase === 'gameover' && this.attached(room)) {
-      room.scores = [0, 0];
-      room.winner = null;
-      countdown(room);
-      this.notify(room);
-      this.updateTimer();
-      await this.persist();
+    if(msg.type==='join')return this.join(ws,msg);
+    const a=ws.deserializeAttachment(),r=this.rooms.get(a?.roomCode),p=r?.players?.[a?.seat];
+    if(!p||p.ws!==ws||p.token!==a.token)return;
+    if(msg.type==='move'){
+      if(!Number.isFinite(msg.x)||!Number.isFinite(msg.y))return;
+      const idx=r.settings.mode==='tournament'?r.activeSeats.indexOf(a.seat):a.seat;
+      if(idx<0)return;
+      const side=teamOf(r,a.seat),b=boundsForPaddle(r,idx);
+      const rx=side===1?W-msg.x:msg.x,ry=side===1?H-msg.y:msg.y;
+      const pad=r.paddles[idx];pad.tx=clamp(rx,b.minX,b.maxX);pad.ty=clamp(ry,b.minY,b.maxY);
+    }else if(msg.type==='chat'){
+      const text=typeof msg.text==='string'?msg.text.trim().slice(0,140):'';
+      if(!text||Date.now()-(p.lastChat||0)<750)return;
+      p.lastChat=Date.now();
+      const item={seat:a.seat,name:p.name,text,at:Date.now()};
+      r.chat??=[];r.chat.push(item);if(r.chat.length>30)r.chat.shift();
+      this.broadcast(r,{type:'chat',message:item});
+    }else if(msg.type==='voice-ready'){
+      if(r.players.length>4)return;
+      r.voiceReady[a.seat]=Boolean(msg.enabled);
+      this.broadcast(r,{type:'voice-status',seat:a.seat,enabled:r.voiceReady[a.seat]});
+    }else if(msg.type==='voice-signal'){
+      if(r.players.length>4||!r.voiceReady[a.seat])return;
+      const to=Number(msg.to);if(!Number.isInteger(to)||to===a.seat||to<0||to>=r.players.length||!r.voiceReady[to])return;
+      const signal=msg.signal;
+      if(!signal||!['offer','answer','ice'].includes(signal.type))return;
+      if(JSON.stringify(signal).length>4200)return;
+      this.send(r.players[to]?.ws,{type:'voice-signal',from:a.seat,signal});
+    }else if(msg.type==='rematch'&&r.phase==='gameover'&&this.full(r)){
+      r.elapsedMs=0;r.remainingMs=r.settings.timeLimit?r.settings.timeLimit*1000:null;
+      r.lastTouch=null;r.scores=[0,0];r.winner=null;countdown(r);
+      this.notify(r);this.updateTimer();await this.persist();
     }
   }
-  async webSocketClose(ws) { await this.detach(ws); }
-  async webSocketError(ws) { await this.detach(ws); }
+  async webSocketClose(ws){await this.detach(ws);}
+  async webSocketError(ws){await this.detach(ws);}
 }
