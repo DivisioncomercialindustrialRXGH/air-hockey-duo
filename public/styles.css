@@ -111,3 +111,26 @@ body:before{content:"";position:fixed;inset:0;background-image:linear-gradient(r
 .game-toolbar .reset-tool:active{transform:scale(.93)}
 .game-toolbar .reset-tool:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:430px){.game-toolbar .reset-tool{width:33px;height:33px;font-size:23px}}
+
+/* Arena 5.0.1 — iOS standalone safe-area: keep the ping below the notch. */
+@supports (padding-top: env(safe-area-inset-top)) {
+  @media (display-mode: standalone) {
+    .app {
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-bottom: max(0px, env(safe-area-inset-bottom));
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+    }
+    .topbar { min-height: 60px; }
+    @media (max-width: 430px) {
+      .arena-frame {
+        width: min(100%, 505px, calc((100dvh - 227px - env(safe-area-inset-top) - env(safe-area-inset-bottom))* .5555556));
+      }
+    }
+    @media (max-height: 700px) {
+      .arena-frame {
+        width: min(100%, 505px, calc((100dvh - 185px - env(safe-area-inset-top) - env(safe-area-inset-bottom))* .5555556));
+      }
+    }
+  }
+}

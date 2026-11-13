@@ -1,20 +1,10 @@
-# 🏒 Air Hockey DUO Arena 5.0 — Online y seis poderes
+# Air Hockey DUO Arena 5.0.1 — iPhone y pelota junto al borde
 
-Actualiza Arena 4.9 sin cambiar controles, diseño, música, equipos, apodos, torneos, bot ni botón ↻.
+Parche sobre Arena 5.0. **No modifica poderes, movimiento de paletas, música, colores, nombres ni dificultad del bot**.
 
-## Online
-- Duelos 1 vs 1 y partidas BOT: 30 estados/s; equipos grandes: 20 estados/s.
-- Actualizaciones regulares: sin ráfagas de paquetes WebSocket después de cada rebote.
-- El servidor recupera retrasos mediante pequeños pasos de física, conservando colisiones continuas.
-- Interpolación con búfer adaptativo de jitter; predicción visual corta de paredes, sin simular goles ni choques de paletas en el teléfono.
-- Indicador real de ping del WebSocket. **RED LENTA** cuando el ping supera aproximadamente 240 ms.
+- iPhone instalado desde la pantalla de inicio: la barra superior respeta los márgenes seguros para que el estado EN LÍNEA y el ping en milisegundos no queden debajo de la Dynamic Island/reloj.
+- El juego conserva el formato vertical de la cancha y reduce levemente su altura útil cuando la zona segura del iPhone ocupa más espacio.
+- Si una paleta empuja la bola contra el borde lateral, el motor ahora la desliza en pasos limitados hasta liberar el contacto; evita que quede atrapada por un choque entre el límite de la pista y el radio de la paleta.
+- Añadidas pruebas de regresión para los dos lados de la cancha.
 
-## Poderes (se recogen con la bola)
-- Existentes: ⚡ Turbo, 🔵 Disco gigante, 🛡️ Paleta gigante.
-- Nuevos: 🫧 Mini paleta rival (reduce el tamaño de las paletas rivales al 67% durante 6,5 s).
-- 🐢 Bola lenta (velocidad inicial reducida y máximo de 720 px/s durante 6,5 s).
-- 🚀 Disparo cargado: el próximo golpe auténtico del equipo dueño sale hacia el rival sin desplazar la pelota de posición. Caduca en 9 s.
-
-## Pruebas
-`npm test`. Prueba los dos móviles en la misma Wi-Fi y después usando distintas conexiones para comparar latencia.
-El servidor sigue siendo autoridad para goles/colisiones. Si el ping es muy alto o la conexión pierde paquetes, la latencia nunca puede eliminarse por completo mediante animación.
+Pruebas de código ejecutadas localmente sobre la base de Arena 5.0: 56 superadas. Es necesario comprobar la apariencia final en iPhone instalado y la física jugando desde el dispositivo.

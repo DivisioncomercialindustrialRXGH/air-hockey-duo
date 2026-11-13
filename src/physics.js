@@ -319,13 +319,33 @@ function resolvePaddle(room,puck,m,at) {
   m.pad.contactLocked=true;
   m.pad.contactNX=nx;m.pad.contactNY=ny;
 }
-function separateRestingContacts(room,motions) {
+function separateRestingContacts(room,motions,dt=1/60) {
   const puck=room.puck,pr=puckRadius(room);
   for(const m of motions){
     const r=pr+m.radius,dx=puck.x-m.pad.x,dy=puck.y-m.pad.y;
     const len=Math.hypot(dx,dy);
-    if(len>r+6){m.pad.contactLocked=false;continue;}
+    if(len>r+6){m.pad.contactLocked=false;m.pad.edgeReleaseSign=0;continue;}
     if(len<r+COLLISION_EPS){
+      // When the mallet traps the puck against a side wall, pushing the puck
+      // outward gets immediately undone by the rink boundary. Ease it along
+      // the wall in bounded steps instead of leaving it pinned or teleporting.
+      const sidePinned=(puck.x>=W-pr-.9 && dx>0) || (puck.x<=pr+.9 && dx<0);
+      if(sidePinned){
+        const minY=pr+COLLISION_EPS,maxY=H-pr-COLLISION_EPS;
+        let direction=m.pad.edgeReleaseSign ||
+          (Math.abs(dy)>2?Math.sign(dy):Math.abs(puck.vy)>8?Math.sign(puck.vy):m.pad.y<H/2?1:-1);
+        const escapeY=Math.sqrt(Math.max(0,(r+2)**2-dx*dx))+6;
+        if(m.pad.y+direction*escapeY<minY||m.pad.y+direction*escapeY>maxY)direction=-direction;
+        m.pad.edgeReleaseSign=direction;
+        const targetY=clamp(m.pad.y+direction*escapeY,minY,maxY);
+        const maxStep=Math.min(12,650*dt);
+        puck.y=clamp(puck.y+clamp(targetY-puck.y,-maxStep,maxStep),minY,maxY);
+        puck.vy=direction*Math.max(Math.abs(puck.vy),280);
+        puck.vx=0;
+        m.pad.contactLocked=true;
+        m.pad.contactNX=0;m.pad.contactNY=direction;
+        continue;
+      }
       // Preserve the original side of a sustained paddle contact. Using the
       // instantaneous center-to-center normal after a fast crossover can
       // teleport the puck to the opposite side.
@@ -432,7 +452,7 @@ export function stepPuck(room,dt) {
   // Overcrowded corner / high-latency safety: stop, never move through the
   // rest of the frame without checking the next collision.
   if(processed>=MAX_COLLISIONS&&remaining>0){puck.vx*=.5;puck.vy*=.5;}
-  separateRestingContacts(room,motions);
+  separateRestingContacts(room,motions,dt);
   // A paddle can separate the disc across a border AFTER collision solving.
   // Enforce the rink again after every single contact (not just at tick start).
   if(![puck.x,puck.y,puck.vx,puck.vy].every(Number.isFinite)){
