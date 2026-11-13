@@ -1,16 +1,10 @@
-# Air Hockey DUO Arena 4.8 — Disco y bot más fluidos
+# Air Hockey DUO Arena 4.9 — colisiones y goles corregidos
 
-Actualización de la versión 4.7. Mantiene el mismo diseño, música, nombres, equipos, poderes, PWA, torneos, física del disco y botón ↻.
+Parche mínimo sobre Arena 4.8. No modifica interfaz, música, control táctil, poderes, ni velocidad/dificultad del bot.
 
-## Cambios
-- Un golpe o rebote normal ya no borra el historial visual del disco.
-- Se utiliza el reloj del servidor para que los paquetes WebSocket con retrasos variables no provoquen tirones.
-- El disco recupera la posición visual sin teletransportarse después de un retraso de red; los goles y el reset siguen recenterando de inmediato.
-- Objetivo de 60 FPS en teléfonos de 60/90/120 Hz, sin reducir los de 90 Hz a 45 FPS.
-- Paletas y disco usan gráficos cacheados, sin recalcular sus brillos en cada fotograma.
-- Bot más preciso al anticipar el contacto y los rebotes laterales, sin aumentar velocidad ni aceleración.
+- Conserva el lado original de contacto durante un solapamiento prolongado con una paleta, evitando que el disco aparezca al otro lado después de una corrección.
+- Los goles solo pueden producirse mediante un cruce real y continuo de la línea de gol dentro del cálculo de física; las correcciones de posición no marcan puntos.
+- El bot intenta recuperar una pelota que está detrás de su paleta, en su propia zona, sin teletransportarse ni aumentar su velocidad.
+- Los poderes permanecen asociados a recogerlos con el **disco**, no con la paleta.
 
-## Comprobar
-Ejecutar `npm test`. Probar partidas BOT Fácil/Difícil/Dios y 2 vs 2 en dos celulares con conexiones distintas.
-
-El servidor de Cloudflare continúa siendo la única autoridad para colisiones, goles y marcadores. Una red lenta todavía puede afectar el tiempo de reacción, aunque el dibujo se vea más fluido.
+Comprobación local: `npm test` (49 pruebas). Se deben validar los golpes rápidos y las porterías en teléfonos reales tras la publicación.

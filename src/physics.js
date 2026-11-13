@@ -161,6 +161,19 @@ export function updateBot(room,now=Date.now()) {
     brain.recoverUntil=now+cfg.recover;
     brain.thinkAt=0;
   }
+  // A disc behind the bot (between its paddle and the goal) overrides retreat.
+  // Rescue from the back line without changing speed, acceleration or difficulty.
+  const behind=puck.y<bot.y-puckRadius(room)*.55 && puck.y<245;
+  if(behind){
+    const pr=puckRadius(room);
+    const desiredX=clamp(puck.x+puck.vx*.035,b.minX,b.maxX);
+    const desiredY=clamp(puck.y-pr-paddleRadius(room,1)*.8,b.minY+10,b.maxY-10);
+    bot.tx=brain.aimX=desiredX;
+    bot.ty=brain.aimY=desiredY;
+    brain.thinkAt=now+cfg.delay;
+    brain.recoverUntil=0;
+    return;
+  }
   if(now<(brain.recoverUntil||0)){
     bot.tx=brain.aimX=clamp(bot.x,b.minX,b.maxX);
     bot.ty=brain.aimY=clamp(124,b.minY,b.maxY);
@@ -299,7 +312,14 @@ function separateRestingContacts(room,motions) {
     const len=Math.hypot(dx,dy);
     if(len>r+6){m.pad.contactLocked=false;continue;}
     if(len<r+COLLISION_EPS){
-      const n=normalFrom(dx,dy,m.pad.contactNX||0,m.pad.contactNY||0);
+      // Preserve the original side of a sustained paddle contact. Using the
+      // instantaneous center-to-center normal after a fast crossover can
+      // teleport the puck to the opposite side.
+      const priorX=m.pad.contactNX,priorY=m.pad.contactNY;
+      const n=m.pad.contactLocked && Number.isFinite(priorX) && Number.isFinite(priorY) &&
+        Math.hypot(priorX,priorY)>.5
+        ? {x:priorX,y:priorY}
+        : normalFrom(dx,dy,priorX||0,priorY||0);
       puck.x=m.pad.x+n.x*(r+COLLISION_EPS);
       puck.y=m.pad.y+n.y*(r+COLLISION_EPS);
       // De-penetration must NEVER inject new energy each tick. A sustained
@@ -329,8 +349,10 @@ export function stepPuck(room,dt) {
   if(![puck.x,puck.y,puck.vx,puck.vy].every(Number.isFinite)){
     Object.assign(puck,{x:W/2,y:H/2,vx:0,vy:0});
   }
-  if(puck.y<=-r*.85&&mouth(puck.x))return 0;
-  if(puck.y>=H+r*.85&&mouth(puck.x))return 1;
+  // An earlier positional correction must never turn into a free goal.
+  // The only valid goal is a swept crossing inside the collision loop.
+  if(puck.y<-r*.85){puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);}
+  if(puck.y>H+r*.85){puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);}
   if(puck.x<r){puck.x=r;puck.vx=Math.abs(puck.vx);}
   if(puck.x>W-r){puck.x=W-r;puck.vx=-Math.abs(puck.vx);}
   if(puck.y<r&&!mouth(puck.x)){puck.y=r;puck.vy=Math.abs(puck.vy);}
@@ -403,8 +425,17 @@ export function stepPuck(room,dt) {
     Object.assign(puck,{x:W/2,y:H/2,vx:0,vy:0});
     markEvent(room,'reset',W/2,H/2,'auto');
   }
-  if(puck.y<=-r*.85&&mouth(puck.x))return 0;
-  if(puck.y>=H+r*.85&&mouth(puck.x))return 1;
+  // Only best.kind==='goal' can award a point; separation is not a score.
+  if(puck.y<r+COLLISION_EPS){
+    if(puck.y<=-r*.85 || !mouth(puck.x)){
+      puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);
+    }
+  }
+  if(puck.y>H-r-COLLISION_EPS){
+    if(puck.y>=H+r*.85 || !mouth(puck.x)){
+      puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);
+    }
+  }
   if(puck.x<r+COLLISION_EPS){puck.x=r+COLLISION_EPS;puck.vx=Math.abs(puck.vx);}
   if(puck.x>W-r-COLLISION_EPS){puck.x=W-r-COLLISION_EPS;puck.vx=-Math.abs(puck.vx);}
   if(puck.y<r&&!mouth(puck.x)){puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);}
