@@ -12,7 +12,7 @@
   <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=4.7.0" />
 </head>
 <body>
   <div class="ambient ambient-one"></div>
@@ -102,6 +102,7 @@
           <button class="icon-button" id="chat-toggle" type="button" title="Chat y emojis" aria-label="Abrir chat y emojis" aria-controls="chat-panel" aria-expanded="false">💬</button>
           <button class="icon-button" id="voice-btn" type="button" title="Activar chat de voz beta" aria-label="Chat de voz">🎙</button>
           <button class="icon-button" id="sound-btn" type="button" aria-label="Música y volumen" title="Música y volumen" aria-controls="audio-panel" aria-expanded="false">♫</button>
+          <button class="icon-button reset-tool" id="reset-puck-btn" type="button" title="Recentrar disco (no modifica el marcador)" aria-label="Recentrar disco">↻</button>
         </div>
       </div>
       <section class="audio-panel glass-panel hud-drawer hidden" id="audio-panel" aria-label="Ajustes de audio">
@@ -144,7 +145,7 @@
           </div>
         </div>
       </div>
-      <div class="game-bottom"><span class="swipe-icon">☝</span><span id="game-hint">Mueve la paleta con tu dedo · ¡Atrapa los poderes!</span><button class="reset-disc-button" id="reset-puck-btn" type="button" title="Recentrar la bola sin cambiar el marcador" aria-label="Recentrar disco">↻ DISCO</button><button class="full-button" id="fullscreen-btn" type="button" title="Pantalla completa" aria-label="Pantalla completa">⛶</button></div>
+      <div class="game-bottom"><span class="swipe-icon">☝</span><span id="game-hint">Mueve la paleta con tu dedo · ¡Atrapa los poderes!</span><button class="full-button" id="fullscreen-btn" type="button" title="Pantalla completa" aria-label="Pantalla completa">⛶</button></div>
       <section class="chat-panel glass-panel hud-drawer hidden" id="chat-panel" aria-label="Chat de sala">
         <div class="section-head">💬 CHAT DE LA SALA <button class="close-mini" id="chat-close" type="button" aria-label="Cerrar chat">✕</button></div>
         <div class="chat-messages" id="chat-messages" role="log" aria-live="polite"></div>
@@ -156,6 +157,6 @@
     </main>
     <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
   </div>
-  <script type="module" src="/game.js"></script>
+  <script type="module" src="/game.js?v=4.7.0"></script>
 </body>
 </html>

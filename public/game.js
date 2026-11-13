@@ -1,3 +1,4 @@
+import {sampleRemotePose} from './motion.js';
 const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
 const $ = selector => document.querySelector(selector);
 const storage = {
@@ -168,6 +169,7 @@ function handleMessage(msg) {
     resizeCanvas();
   }
   if(msg.type==='reset-rejected'){
+    ui.resetPuck.disabled=false;
     ui.hint.textContent=msg.message;
     return;
   }
@@ -200,7 +202,7 @@ function handleMessage(msg) {
     // Drawing raw 20 Hz snapshots caused the bot to appear to vibrate even
     // when its server-side position was perfectly smooth at 60 Hz.
     app.remotePaddleFrames.push({at:app.lastStateAt,poses:msg.paddles.map(p=>orient(p,msg))});
-    if(app.remotePaddleFrames.length>8)app.remotePaddleFrames.shift();
+    if(app.remotePaddleFrames.length>12)app.remotePaddleFrames.shift();
     const facing=sideFor(msg)===1?-1:1;
     const oriented=orient(msg.puck,msg);
     app.puckFrames.push({at:app.lastStateAt,x:oriented.x,y:oriented.y,vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
@@ -816,7 +818,7 @@ function drawPower(s,t){
 function samplePuck(now,phase){
   const frames=app.puckFrames;
   if(!frames.length)return app.puckDraw;
-  const newest=frames[frames.length-1], target=now-45;
+  const newest=frames[frames.length-1], target=now-(app.state?.settings?.mode==='bot'?92:45);
   if(!['playing','overtime'].includes(phase))return {...newest};
   if(target<=frames[0].at)return {...frames[0]};
   for(let i=1;i<frames.length;i++){
@@ -859,40 +861,22 @@ function drawParticles(dt){
   }
   ctx.globalAlpha=1;
 }
-/** Remote mallets (including BOT) are rendered between authoritative states.
- * The 55 ms buffer smooths the 20 Hz network cadence without introducing a
- * second collision simulation on the phone. No easing that overshoots walls. */
+/** All remote mallets follow a short buffered timeline, not each network packet.
+ * 4.6 used only 55ms of delay with 20Hz packets and 22ms of extrapolation;
+ * the remote mallet froze for ~20-30ms after most packets. This was the
+ * stop-motion effect, even though the bot movement on the server was smooth.
+ * 4.7 uses 30Hz snapshots for solo games and an adaptive visual buffer. */
 function sampleRemotePaddle(index, now, fallback) {
-  const frames=app.remotePaddleFrames;
-  if(!frames.length) return fallback;
-  const goalTime=now-55;
-  const first=frames[0];
-  if(goalTime<=first.at)return first.poses[index]||fallback;
-  for(let i=1;i<frames.length;i++){
-    const a=frames[i-1],b=frames[i];
-    if(goalTime<=b.at){
-      const pa=a.poses[index],pb=b.poses[index];
-      if(!pa||!pb)return fallback;
-      const alpha=Math.max(0,Math.min(1,(goalTime-a.at)/Math.max(1,b.at-a.at)));
-      return {x:pa.x+(pb.x-pa.x)*alpha,y:pa.y+(pb.y-pa.y)*alpha};
-    }
-  }
-  // Cap extrapolation under temporary packet delay. Do not teleport when
-  // the connection stalls; preserve last known authoritative pose instead.
-  const newest=frames[frames.length-1];
-  const prev=frames[frames.length-2];
-  const p=newest.poses[index];
-  if(!p)return fallback;
-  if(!prev||!prev.poses[index])return p;
-  const secs=Math.max(.001,(newest.at-prev.at)/1000);
-  const lead=Math.min(.022,Math.max(0,(goalTime-newest.at)/1000));
-  const vX=(p.x-prev.poses[index].x)/secs;
-  const vY=(p.y-prev.poses[index].y)/secs;
-  const max=app.state?.settings?.mode==='bot'?1100:1800;
-  const velocityScale=Math.min(1,max/Math.max(.001,Math.hypot(vX,vY)));
-  return {x:Math.max(PADDLE_R,Math.min(W-PADDLE_R,p.x+vX*velocityScale*lead)),
-          y:Math.max(PADDLE_R,Math.min(H-PADDLE_R,p.y+vY*velocityScale*lead))};
+  const isBot=app.state?.settings?.mode==='bot';
+  const sampled=sampleRemotePose(app.remotePaddleFrames,index,now,{
+    delayMs:isBot?92:108,
+    maxExtrapolateMs:55,
+    maxSpeed:isBot?1100:3600,
+    bounds:{minX:PADDLE_R,maxX:W-PADDLE_R,minY:PADDLE_R,maxY:H-PADDLE_R}
+  });
+  return sampled||fallback;
 }
+
 function draw(t){
   const dt=Math.min(.04,Math.max(.001,(t-app.lastFrame)/1000));app.lastFrame=t;
   if(ui.game.classList.contains('hidden')||document.hidden){

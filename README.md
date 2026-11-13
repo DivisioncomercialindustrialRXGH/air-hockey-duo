@@ -1,22 +1,18 @@
-# 🏒 Air Hockey DUO Arena 4.6 — Bot estable + disco en cancha + recuperación
+# 🏒 Air Hockey DUO Arena 4.7 — Bot fluido + botón ↻ siempre visible
 
-Actualización correctiva sobre **Arena 4.5.1**. Mantiene los equipos, apodos corregidos en ambos teléfonos, música, PWA, torneos, chat y diseño liquid glass.
+Corrección incremental sobre Arena 4.6. **No cambia diseño, física, música, puntajes, nombres ni salas**.
 
-## Reparaciones
-- **BOT**: límites de velocidad por dificultad, aceleración/desaceleración progresivas, objetivos estables y retirada después de golpear. Se eliminó el frenazo instantáneo del controlador que provocaba un tirón medible en una prueba de estrés.
-- **Movimiento visual**: interpolación de las paletas remotas entre actualizaciones de red para reducir los saltos a 20 Hz, sin duplicar la simulación de la bola.
-- **Bola**: se elimina el impulso añadido cada fotograma durante un contacto prolongado y se comprueban los límites *después* de resolver los choques. Únicamente puede cruzar la línea de fondo por el hueco de gol.
-- **Botón ↻ DISCO**: aparece bajo la pista; permite recentrar durante la partida sin tocar puntos ni tiempo. Espera de 15 segundos entre usos por sala, para evitar reinicios abusivos.
-- **Caché PWA**: nueva revisión de caché para que la actualización llegue a los celulares.
+## Qué corrige
+
+- **Bot sin stop-motion:** la vista anterior solo retenía 55 ms de estados de red y extrapolaba como máximo 22 ms. A 20 mensajes/s, eso dejaba tramos sin movimiento. Se utiliza un búfer de interpolación de 92 ms con 30 estados/s **solo en salas BOT**. La presentación visual es continua a la frecuencia de refresco del móvil; el motor físico sigue autoritativo a 60 Hz.
+- **Botón de recuperación visible:** ↻ en la barra superior del juego, junto al botón ♫, incluso en móviles con poca altura. Púlsalo durante la partida para recentrar el disco sin alterar el marcador. Límite de una recuperación por sala cada 15 segundos.
+- **PWA:** caché con nueva versión y recursos con indicador v4.7.0, reduciendo riesgo de abrir una interfaz anterior.
+- **Pruebas de interpolación:** nuevo archivo `test/motion.test.js`.
 
 ## Publicación
-1. Descomprime el ZIP. Conserva las carpetas `public`, `src` y `test`.
-2. Sube el contenido a `DivisioncomercialindustrialRXGH/air-hockey-duo` → **Add file → Upload files**.
-3. En `main`, usa el commit **`Arena 4.6 - Bot estable, disco en cancha y reset`**.
-4. Revisa Cloudflare Deployments hasta que el build esté en verde; no hace falta otro Worker.
-5. Cierra y vuelve a abrir la app instalada en cada teléfono. Usa salas nuevas para las pruebas.
+Actualización directa del repositorio de GitHub en la rama main, con un solo commit. Cloudflare conserva el mismo Worker y enlace.
 
-## Pruebas
-`npm run check` valida el código y ejecuta **35 pruebas automatizadas**, incluidas pruebas de estrés, comportamiento del bot, límites de cancha y recuperación. Validar adicionalmente en dos teléfonos reales, pues las pruebas locales no garantizan cero tirones de red.
+## Qué probar
+Modo BOT Dios y Difícil, mover el bot de lado a lado y comprobar fluidez. Verifica ↻ al lado de ♫ durante la partida. Prueba pulsarlo y confirmar que vuelve al centro sin cambiar el tanteador. Si un teléfono queda con caché anterior, borra los datos del sitio del juego y vuelve a abrirlo.
 
-**Nota de música:** el archivo incluido es una mezcla comercial suministrada por el usuario; publicarlo para terceros puede requerir derechos de distribución.
+**Aviso:** pruebas automatizadas locales no garantizan rendimiento perfecto con todas las conexiones o todos los navegadores. El modo BOT sigue utilizando un servidor en Cloudflare, aunque solo juegue una persona.

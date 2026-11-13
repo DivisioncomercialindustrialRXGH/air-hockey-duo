@@ -169,7 +169,9 @@ export class HockeyHub extends DurableObject {
           else{updatePower(r,now);if(evId!==r.lastEvent.id)this.notify(r);}
         }
       }
-      const divisor=Math.max(1,Math.round(TICK_RATE/SEND_RATE));
+      // Solo: 30 muestras/s for a single real player, 20 for multiplayer.
+      // Rendering interpolates these snapshots; server physics stays at 60 Hz.
+      const divisor=Math.max(1,Math.round(TICK_RATE/(r.settings.mode==='bot'?30:SEND_RATE)));
       if(this.frame%divisor===0)this.notify(r);
     }
     if(changed){this.updateTimer();this.ctx.waitUntil(this.persist());}

@@ -1,5 +1,5 @@
-const CACHE='hockey-duo-v4-6-bot-estable-recentrar';
-const CORE=['/','/index.html','/styles.css','/game.js','/manifest.webmanifest','/favicon.svg','/icon-192.png'];
+const CACHE='hockey-duo-v4-7-smooth-hud-reset';
+const CORE=['/','/index.html','/styles.css','/game.js','/motion.js','/manifest.webmanifest','/favicon.svg','/icon-192.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting()));
 });
@@ -14,7 +14,7 @@ self.addEventListener('fetch',event=>{
     event.respondWith(fetch(req).catch(()=>caches.match('/index.html')));return;
   }
   if(/\.(?:mp3|m4a|ogg|wav)$/i.test(url.pathname))return;
-  if(['/game.js','/styles.css'].includes(url.pathname)){
+  if(['/game.js','/styles.css','/motion.js'].includes(url.pathname)){
     event.respondWith(fetch(req).catch(()=>caches.match(req)));return;
   }
   event.respondWith(caches.match(req).then(cached=>{
