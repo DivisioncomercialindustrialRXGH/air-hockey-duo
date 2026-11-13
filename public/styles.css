@@ -98,3 +98,10 @@ body:before{content:"";position:fixed;inset:0;background-image:linear-gradient(r
 
 /* V4.2: elección clara de equipos sin alterar el HUD ni la pista. */
 .team-option{margin:6px 0 11px}.join-team-input{margin-bottom:9px;max-width:100%}
+
+/* Arena 4.6: compact rescue control, visible without covering the pitch. */
+.game-bottom .reset-disc-button{margin-left:auto;flex-shrink:0;border:1px solid rgba(103,222,255,.36);background:rgba(22,64,89,.45);color:#a3edff;border-radius:8px;padding:6px 8px;font-size:10px;font-weight:850;white-space:nowrap;cursor:pointer}
+.game-bottom .reset-disc-button:active{transform:scale(.96)}
+.game-bottom .reset-disc-button:disabled{opacity:.45;cursor:default}
+.game-bottom .full-button{margin-left:0}
+.game-bottom #game-hint{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis}

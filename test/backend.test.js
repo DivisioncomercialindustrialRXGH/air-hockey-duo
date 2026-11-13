@@ -243,3 +243,24 @@ test('bot difficulties differ in response speed and accuracy without special col
   }
   assert.ok(motions[0]<motions[1]&&motions[1]<motions[2],`facil/dificil/dios respetan rapidez: ${motions}`);
 });
+
+test('reset button message recenters during match, preserves score and applies per-room cooldown',async()=>{
+  const ctx=new Context();const hub=new HockeyHub(ctx,{});await ctx.ready;
+  const a=new Socket();ctx.sockets.push(a);
+  await send(hub,a,{type:'create',name:'Solo',settings:{mode:'bot',powers:false}});
+  const code=a.ofType('joined')[0].code;const room=hub.rooms.get(code);
+  room.phase='playing';room.scores=[3,2];room.remainingMs=87000;
+  room.puck={x:49,y:300,vx:1000,vy:1100};
+  await send(hub,a,{type:'reset-puck'});
+  assert.equal(room.puck.x,250);assert.equal(room.puck.y,450);
+  assert.deepEqual(room.scores,[3,2]);assert.equal(room.remainingMs,87000);
+  assert.equal(room.lastEvent.type,'reset');
+  const id=room.lastEvent.id;
+  await send(hub,a,{type:'reset-puck'});
+  assert.equal(room.lastEvent.id,id);
+  assert.match(a.ofType('reset-rejected').at(-1).message,/volver a recentrar/);
+  room.phase='gameover';room.lastManualResetAt=0;
+  await send(hub,a,{type:'reset-puck'});
+  assert.match(a.ofType('reset-rejected').at(-1).message,/durante la partida/);
+  clearInterval(hub.timer);await ctx.flush();
+});

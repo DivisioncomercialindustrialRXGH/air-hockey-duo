@@ -13,7 +13,7 @@ const ui = {
   invite: $('#invite-box'), inviteCode: $('#invite-code'), toolbarCode: $('#toolbar-code'),
   share: $('#share-btn'), copy: $('#copy-btn'), rematch: $('#rematch-btn'),
   myName: $('#my-name'), opName: $('#op-name'), myScore: $('#my-score'), opScore: $('#op-score'),
-  sound: $('#sound-btn'), fullscreen: $('#fullscreen-btn'), hint: $('#game-hint'),
+  sound: $('#sound-btn'), fullscreen: $('#fullscreen-btn'), resetPuck: $('#reset-puck-btn'), hint: $('#game-hint'),
   time: $('#match-time'), target: $('#match-score'), powers: $('#powers-enabled'),
   timer: $('#game-time'), goalLabel: $('#game-target'), activePower: $('#active-power'),
   install: $('#install-btn'), installHelp: $('#install-help'),
@@ -33,7 +33,7 @@ const app = {
   ws: null, seat: 0, room: null, name: storage.getItem('ah_name') || '', token: null,
   online: false, desiredJoin: null, // No entrar automáticamente: debe poder elegirse el equipo.
   pending: null, state: null, oldPhase: null, lastStateAt: 0, lastGoalBy: null,
-  puckDraw: null, puckFrames: [], trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
+  puckDraw: null, puckFrames: [], remotePaddleFrames: [], trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
   sendAt: 0, localPaddle: null, audioEnabled: storage.getItem('ah_sound') !== 'off', audio: null,
   lastFrame: performance.now(), lastUIAt:0,
   lastEventSeen: 0, lastLocalHit: 0, speculativeUntil: 0, inputV: {x:0,y:0}, prevInputAt: 0,
@@ -153,7 +153,7 @@ function handleMessage(msg) {
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
-    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.localPaddle = null;app.inputMoved=false;
+    app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.localPaddle = null;app.inputMoved=false;
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
     app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
     storage.setItem('ah_token_' + msg.code, msg.token);
@@ -166,6 +166,10 @@ function handleMessage(msg) {
     // La música no se descarga hasta que el jugador la solicite expresamente.
     ui.musicStatus.textContent='Pulsa ▶ REPRODUCIR MEZCLA para activar la música. El juego no espera al audio.';
     resizeCanvas();
+  }
+  if(msg.type==='reset-rejected'){
+    ui.hint.textContent=msg.message;
+    return;
   }
   if(msg.type==='chat' && app.room){addChat(msg.message);return;}
   if(msg.type==='voice-status' && app.room){
@@ -183,14 +187,20 @@ function handleMessage(msg) {
     const oldSide=prev?sideFor(prev):sideFor(msg);
     if(prev&&oldSide!==sideFor(msg)){
       app.localPaddle=null;
-      app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
+      app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.remotePaddleFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
     }
     app.lastStateAt=performance.now();
     // Dibujamos snapshots autoritativos; no se ejecuta otra física distinta en el celular.
     // Si hubo choque/gol, empezamos una nueva curva, nunca interpolamos "a través" del rebote.
-    if(phaseChanged || (prev && msg.event?.id!==prev.event?.id && ['hit','wall'].includes(msg.event?.type))){
+    if(phaseChanged || (prev && msg.event?.id!==prev.event?.id && ['hit','wall','reset'].includes(msg.event?.type))){
       app.puckFrames=[];
+      app.remotePaddleFrames=[];
     }
+    // Interpolate remote mallets using the SAME visual timeline as the puck.
+    // Drawing raw 20 Hz snapshots caused the bot to appear to vibrate even
+    // when its server-side position was perfectly smooth at 60 Hz.
+    app.remotePaddleFrames.push({at:app.lastStateAt,poses:msg.paddles.map(p=>orient(p,msg))});
+    if(app.remotePaddleFrames.length>8)app.remotePaddleFrames.shift();
     const facing=sideFor(msg)===1?-1:1;
     const oriented=orient(msg.puck,msg);
     app.puckFrames.push({at:app.lastStateAt,x:oriented.x,y:oriented.y,vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
@@ -205,6 +215,10 @@ function handleMessage(msg) {
         if(performance.now()-app.lastWallAt>140){sound('wall');app.lastWallAt=performance.now();}
       }else if(msg.event.type==='power'){
         burst(e.x,e.y,'#ffe477',26);sound('power');
+      }else if(msg.event.type==='reset'){
+        app.puckFrames=[];app.puckDraw=null;app.trail=[];
+        ui.hint.textContent='↻ Disco recentrado · El marcador no cambió';
+        sound('start');
       }else if(msg.event.type==='spawn')sound('spawn');
     }
     if (phaseChanged) {
@@ -447,6 +461,15 @@ function addChat(item){
   ui.chatMessages.scrollTop=ui.chatMessages.scrollHeight;
   if(ui.chatPanel.classList.contains('hidden'))ui.chatToggle.classList.add('unread');
 }
+ui.resetPuck.addEventListener('click',()=>{
+  if(!app.room||!['playing','overtime'].includes(app.state?.phase)){
+    ui.hint.textContent='Espera a que empiece la partida para recentrar.';
+    return;
+  }
+  send({type:'reset-puck'});
+  ui.resetPuck.disabled=true;
+  setTimeout(()=>{ui.resetPuck.disabled=false;},15000);
+});
 ui.fullscreen.addEventListener('click', async () => {
   try {
     if(document.fullscreenElement)await document.exitFullscreen();
@@ -836,6 +859,40 @@ function drawParticles(dt){
   }
   ctx.globalAlpha=1;
 }
+/** Remote mallets (including BOT) are rendered between authoritative states.
+ * The 55 ms buffer smooths the 20 Hz network cadence without introducing a
+ * second collision simulation on the phone. No easing that overshoots walls. */
+function sampleRemotePaddle(index, now, fallback) {
+  const frames=app.remotePaddleFrames;
+  if(!frames.length) return fallback;
+  const goalTime=now-55;
+  const first=frames[0];
+  if(goalTime<=first.at)return first.poses[index]||fallback;
+  for(let i=1;i<frames.length;i++){
+    const a=frames[i-1],b=frames[i];
+    if(goalTime<=b.at){
+      const pa=a.poses[index],pb=b.poses[index];
+      if(!pa||!pb)return fallback;
+      const alpha=Math.max(0,Math.min(1,(goalTime-a.at)/Math.max(1,b.at-a.at)));
+      return {x:pa.x+(pb.x-pa.x)*alpha,y:pa.y+(pb.y-pa.y)*alpha};
+    }
+  }
+  // Cap extrapolation under temporary packet delay. Do not teleport when
+  // the connection stalls; preserve last known authoritative pose instead.
+  const newest=frames[frames.length-1];
+  const prev=frames[frames.length-2];
+  const p=newest.poses[index];
+  if(!p)return fallback;
+  if(!prev||!prev.poses[index])return p;
+  const secs=Math.max(.001,(newest.at-prev.at)/1000);
+  const lead=Math.min(.022,Math.max(0,(goalTime-newest.at)/1000));
+  const vX=(p.x-prev.poses[index].x)/secs;
+  const vY=(p.y-prev.poses[index].y)/secs;
+  const max=app.state?.settings?.mode==='bot'?1100:1800;
+  const velocityScale=Math.min(1,max/Math.max(.001,Math.hypot(vX,vY)));
+  return {x:Math.max(PADDLE_R,Math.min(W-PADDLE_R,p.x+vX*velocityScale*lead)),
+          y:Math.max(PADDLE_R,Math.min(H-PADDLE_R,p.y+vY*velocityScale*lead))};
+}
 function draw(t){
   const dt=Math.min(.04,Math.max(.001,(t-app.lastFrame)/1000));app.lastFrame=t;
   if(ui.game.classList.contains('hidden')||document.hidden){
@@ -871,7 +928,10 @@ function draw(t){
     team:paddleTeam(s,i),name:namesOnPaddles?s.players[i]?.name:null,
     lane:namesOnPaddles?screenLaneFor(i,s):null,
     r:s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:PADDLE_R}));
-  for(const pad of displayed.filter(p=>!p.mine))drawPaddle(pad.p,pad.team,pad.r,pad.name,laneWidth,pad.lane);
+  for(const pad of displayed.filter(p=>!p.mine)){
+    const smoothed=sampleRemotePaddle(pad.i,t,pad.p);
+    drawPaddle(smoothed,pad.team,pad.r,pad.name,laneWidth,pad.lane);
+  }
   drawPuck(app.puckDraw);
   drawGoalFx(t);
   if(localIndex>=0){

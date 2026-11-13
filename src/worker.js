@@ -2,7 +2,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   W,H,TICK_RATE,SEND_RATE,PADDLE_R,clamp,makeRoom,countdown,movePaddles,stepPuck,
-  puckRadius,paddleRadius,updatePower,updateBot,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle
+  puckRadius,paddleRadius,updatePower,updateBot,recenterPuck,sanitizeSettings,teamOf,seatsRequired,boundsForPaddle
 } from './physics.js';
 import {
   initializeTournament,prepareTournamentMatch,finishTournamentMatch,leaderboard
@@ -15,7 +15,7 @@ const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'c
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname==='/health')return respond({ok:true,release:'4.5-team-colors-nicknames',platform:'cloudflare'});
+    if(url.pathname==='/health')return respond({ok:true,release:'4.6-bot-stable-rink-recenter',platform:'cloudflare'});
     if(url.pathname==='/ws'){
       if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return respond({error:'WebSocket requerido'},426);
       const origin=request.headers.get('Origin');
@@ -256,6 +256,15 @@ export class HockeyHub extends DurableObject {
       if(!signal||!['offer','answer','ice'].includes(signal.type))return;
       if(JSON.stringify(signal).length>4200)return;
       this.send(r.players[to]?.ws,{type:'voice-signal',from:a.seat,signal});
+    }else if(msg.type==='reset-puck'){
+      if(!['playing','overtime'].includes(r.phase))return this.send(ws,{type:'reset-rejected',message:'Recentrar está disponible durante la partida.'});
+      const now=Date.now();
+      const cooldown=15000;
+      if(now-(r.lastManualResetAt||0)<cooldown)
+        return this.send(ws,{type:'reset-rejected',message:`Puedes volver a recentrar en ${Math.ceil((cooldown-(now-r.lastManualResetAt))/1000)} s.`});
+      r.lastManualResetAt=now;
+      recenterPuck(r,now);
+      this.notify(r);this.ctx.waitUntil(this.persist());
     }else if(msg.type==='rematch'&&r.phase==='gameover'&&this.full(r)){
       r.elapsedMs=0;r.remainingMs=r.settings.timeLimit?r.settings.timeLimit*1000:null;
       r.lastTouch=null;r.scores=[0,0];r.winner=null;countdown(r);

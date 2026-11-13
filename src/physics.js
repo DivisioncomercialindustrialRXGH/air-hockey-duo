@@ -10,9 +10,10 @@ export const MAX_PADDLE_SPEED = 3600;
 const MAX_IMPACT_SPEED = 1000;
 export const MAX_PUCK_SPEED = 1600;
 const BOT_CONFIG = Object.freeze({
-  easy:{speed:540,delay:290,error:64},
-  hard:{speed:1100,delay:100,error:20},
-  god:{speed:1900,delay:28,error:2}
+  // Difficulty changes reaction/prediction, not impossible teleporting.
+  easy:{speed:405,accel:1650,delay:190,error:48,recover:260},
+  hard:{speed:720,accel:2800,delay:82,error:17,recover:220},
+  god:{speed:1100,accel:4800,delay:42,error:2,recover:180}
 });
 const RADII = { S: 12, M: 16, L: 23 };
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -62,7 +63,7 @@ export function makeRoom(code, settings = {}) {
     phase:'waiting', scores:[0,0], winner:null,goalBy:null,phaseEnd:0,pauseMessage:'',lastUsed:Date.now(),
     elapsedMs:0,remainingMs:s.timeLimit?s.timeLimit*1000:null,lastTouch:null,power:null,effect:null,nextPowerAt:0,
     lastEvent:{id:0,type:'init',x:W/2,y:H/2,detail:''},
-    bot:s.mode==='bot'?{aimX:W/2,aimY:132,thinkAt:0,iteration:0}:null,
+    bot:s.mode==='bot'?{aimX:W/2,aimY:132,thinkAt:0,iteration:0,seenHit:0,recoverUntil:0}:null,
     paddles:startingPaddles(s.mode),puck:{x:W/2,y:H/2,vx:0,vy:0}
   };
 }
@@ -91,6 +92,7 @@ export function countdown(room, toward) {
   room.goalBy=null; room.winner=null; room.pauseMessage='';
   room.power=null; room.effect=null; room.nextPowerAt=Date.now()+6500;
   resetPaddles(room); serve(room,toward);
+  if(room.bot){room.bot.thinkAt=0;room.bot.recoverUntil=0;room.bot.seenHit=room.lastEvent?.id||0;}
 }
 export function movePaddles(room, dt) {
   room.paddles.forEach((p,i) => {
@@ -98,11 +100,41 @@ export function movePaddles(room, dt) {
     const dx=p.tx-p.x,dy=p.ty-p.y, dist=Math.hypot(dx,dy);
     // La IA usa el MISMO movimiento y las MISMAS colisiones que un humano.
     const maxSpeed=room.settings.mode==='bot'&&i===1 ? BOT_CONFIG[room.settings.botDifficulty].speed : MAX_PADDLE_SPEED;
-    const fraction=dist>0 ? Math.min(1,maxSpeed*dt/dist):0;
-    const r=paddleRadius(room,i);
     const b=boundsForPaddle(room,i);
-    p.x=clamp(p.x+dx*fraction,b.minX,b.maxX);
-    p.y=clamp(p.y+dy*fraction,b.minY,b.maxY);
+    if(room.settings.mode==='bot'&&i===1){
+      // Acceleration-limited servo: eliminates instantaneous direction flips
+      // and keeps BOT GOD challenging through prediction, not hyper speed.
+      const cfg=BOT_CONFIG[room.settings.botDifficulty]||BOT_CONFIG.hard;
+      // Start braking BEFORE reaching a target: a fast bot that snapped its
+      // position or velocity to a newly chosen target created visible jerks.
+      const stopSpeed=Math.sqrt(2*cfg.accel*dist)*.72;
+      const desiredSpeed=Math.min(maxSpeed,stopSpeed,dist*9);
+      const wantedVX=dist>1e-6?dx/dist*desiredSpeed:0;
+      const wantedVY=dist>1e-6?dy/dist*desiredSpeed:0;
+      const dvx=wantedVX-(p.motorVX||0),dvy=wantedVY-(p.motorVY||0);
+      const delta=Math.hypot(dvx,dvy),ratio=delta>0?Math.min(1,cfg.accel*dt/delta):0;
+      p.motorVX=(p.motorVX||0)+dvx*ratio;
+      p.motorVY=(p.motorVY||0)+dvy*ratio;
+      // No position snapping at high speed, and no instantaneous velocity zero.
+      // The controller may overshoot a few pixels while braking naturally.
+      if(dist<.35&&Math.hypot(p.motorVX,p.motorVY)<cfg.accel*dt*.7){
+        p.motorVX=0;p.motorVY=0;
+        p.x=clamp(p.tx,b.minX,b.maxX);
+        p.y=clamp(p.ty,b.minY,b.maxY);
+      }else{
+        const nx=p.x+p.motorVX*dt,ny=p.y+p.motorVY*dt;
+        p.x=clamp(nx,b.minX,b.maxX);
+        p.y=clamp(ny,b.minY,b.maxY);
+        // At a physical boundary, stop only the blocked component.
+        if(nx!==p.x)p.motorVX=0;
+        if(ny!==p.y)p.motorVY=0;
+      }
+    }else{
+      // Human finger still gets the original fast, unfiltered control.
+      const fraction=dist>0?Math.min(1,maxSpeed*dt/dist):0;
+      p.x=clamp(p.x+dx*fraction,b.minX,b.maxX);
+      p.y=clamp(p.y+dy*fraction,b.minY,b.maxY);
+    }
     // Damp very fast finger jumps for stable impact energy.
     p.vx=clamp((p.x-p.prevX)/dt,-MAX_PADDLE_SPEED,MAX_PADDLE_SPEED);
     p.vy=clamp((p.y-p.prevY)/dt,-MAX_PADDLE_SPEED,MAX_PADDLE_SPEED);
@@ -119,46 +151,58 @@ export function movePaddles(room, dt) {
 export function updateBot(room,now=Date.now()) {
   if(room.settings.mode!=='bot'||!room.bot)return;
   const cfg=BOT_CONFIG[room.settings.botDifficulty]||BOT_CONFIG.hard;
-  if(now<(room.bot.thinkAt||0))return;
-  room.bot.thinkAt=now+cfg.delay;
-  room.bot.iteration=(room.bot.iteration||0)+1;
-  const puck=room.puck, bot=room.paddles[1], pr=puckRadius(room);
-  const bounds=boundsForPaddle(room,1);
-  const left=pr,right=W-pr,span=right-left;
+  const brain=room.bot,bot=room.paddles[1],puck=room.puck;
+  const b=boundsForPaddle(room,1);
+  // After hitting, STOP chasing. Retreat from the puck for a brief time.
+  // The old bot repeatedly followed the same disc and shook at high speed.
+  if(room.lastEvent?.type==='hit' && room.lastEvent.detail==='1' &&
+      brain.seenHit!==room.lastEvent.id){
+    brain.seenHit=room.lastEvent.id;
+    brain.recoverUntil=now+cfg.recover;
+    brain.thinkAt=0;
+  }
+  if(now<(brain.recoverUntil||0)){
+    bot.tx=brain.aimX=clamp(bot.x,b.minX,b.maxX);
+    bot.ty=brain.aimY=clamp(124,b.minY,b.maxY);
+    return;
+  }
+  if(now<(brain.thinkAt||0))return;
+  brain.thinkAt=now+cfg.delay;
+  brain.iteration=(brain.iteration||0)+1;
+  const pr=puckRadius(room),left=pr,right=W-pr,span=right-left;
   const projectedX=seconds=>{
-    const x=puck.x+puck.vx*clamp(seconds,0,1.5)-left;
+    const x=puck.x+puck.vx*clamp(seconds,0,.9)-left;
     const wrapped=((x%(2*span))+(2*span))%(2*span);
     return left+(wrapped<=span?wrapped:2*span-wrapped);
   };
-  // Calcular dónde entrará el disco en la zona de ataque (Y ~= 260).
-  const coming= puck.vy < -45;
-  const inCourt=puck.y<H/2+35;
-  const interceptSeconds=coming?Math.max(0,(puck.y-265)/-puck.vy):0;
-  const predictX=inCourt ? projectedX(interceptSeconds) : W/2;
-  const seed=Math.sin(room.bot.iteration*127.1+room.code.length*31.73)*43758.5453;
-  const error=((seed-Math.floor(seed))*2-1)*cfg.error;
-  let x=predictX+error;
-  let y=145;
-  // El bot prepara la intercepción, no persigue la pelota desde el fondo.
-  if(inCourt && puck.y>115 && puck.y<415 && puck.vy<235){
-    const close=puck.y<335 || Math.abs(bot.x-predictX)<85;
-    if(close){
-      // Objetivo deliberadamente DENTRO del radio de contacto para atacar.
-      // La paleta debe acercarse desde arriba; así el rebote es hacia abajo.
-      const strikeGap=(pr+paddleRadius(room,1))*0.51;
-      y=puck.y-strikeGap;
-      // Cuando el puck está cerca, apuntar a su posición actual, no a un
-      // intercepto lejano que haga esquivarlo en el último instante.
-      if(puck.y<325)x=puck.x+error*0.35;
-    }else{
-      y=195;
-    }
-  }else if(inCourt && puck.y<=115){
-    // Defender la boca cuando el disco está pegado al borde superior.
-    y=bounds.minY+8;x=puck.x+error*.25;
+  const approaching=puck.vy< -60;
+  const inZone=puck.y>75&&puck.y<H/2+35;
+  const interceptSeconds=approaching?Math.max(0,(puck.y-235)/-puck.vy):0;
+  // Difficulty error remains STABLE for several moments. Re-randomizing it
+  // every think cycle caused easy/hard to shake even when the puck was still.
+  const interval=Math.floor((room.elapsedMs||0)/1700);
+  const noise=Math.sin(interval*127.1+room.code.length*31.73)*43758.5453;
+  const error=((noise-Math.floor(noise))*2-1)*cfg.error;
+  let x=W/2,y=140;
+  if(approaching&&inZone){
+    const aim=projectedX(interceptSeconds);
+    if(puck.y<345){
+      const touchLead=Math.min(.18,Math.max(0,(puck.y-215)/-puck.vy));
+      x=projectedX(touchLead)+error*.22;
+      y=puck.y-(pr+paddleRadius(room,1))*.68;
+    }else{x=aim+error;y=200;}
+  }else if(puck.y<125&&puck.vy<0){
+    x=puck.x+error*.25;
+    y=b.minY+9;
+  }else if(puck.y<390){
+    // If puck is travelling AWAY, return to a stable defensive spot.
+    x=projectedX(.12)+error*.15;
+    y=142;
   }
-  bot.tx=room.bot.aimX=clamp(x,bounds.minX,bounds.maxX);
-  bot.ty=room.bot.aimY=clamp(y,bounds.minY,bounds.maxY);
+  const targetX=clamp(x,b.minX,b.maxX),targetY=clamp(y,b.minY,b.maxY);
+  // A small dead-zone eliminates flickering at nearly equal targets.
+  if(Math.abs(targetX-bot.tx)>5)bot.tx=brain.aimX=targetX;
+  if(Math.abs(targetY-bot.ty)>5)bot.ty=brain.aimY=targetY;
 }
 
 // Stable collision response. Geometry uses exact swept-circle time-of-impact (TOI),
@@ -256,15 +300,10 @@ function separateRestingContacts(room,motions) {
       const n=normalFrom(dx,dy,m.pad.contactNX||0,m.pad.contactNY||0);
       puck.x=m.pad.x+n.x*(r+COLLISION_EPS);
       puck.y=m.pad.y+n.y*(r+COLLISION_EPS);
-      // Resolver un solapamiento NO es otro golpe. Un empuje continuo solo
-      // puede llevar el disco suavemente hacia fuera (nunca lanzar un misil).
-      const puckNormal=puck.vx*n.x+puck.vy*n.y;
-      const carry=Math.min(360,Math.max(0,m.vx*n.x+m.vy*n.y));
-      if(puckNormal<carry){
-        const correction=Math.min(420,carry-puckNormal);
-        puck.vx+=correction*n.x;puck.vy+=correction*n.y;
-        limitSpeed(puck);
-      }
+      // De-penetration must NEVER inject new energy each tick. A sustained
+      // overlapping mallet was accelerating the disc to the speed cap.
+      const inwards=puck.vx*n.x+puck.vy*n.y;
+      if(inwards<0){puck.vx-=inwards*n.x;puck.vy-=inwards*n.y;}
       m.pad.contactLocked=true;
       m.pad.contactNX=n.x;m.pad.contactNY=n.y;
     }
@@ -283,6 +322,17 @@ export function stepPuck(room,dt) {
   const mouthLeft=W/2-GOAL_HALF+r+3;
   const mouthRight=W/2+GOAL_HALF-r-3;
   const mouth=(x)=>x>=mouthLeft&&x<=mouthRight;
+  // Handle corrupt/old snapshots and positions forced out by the previous
+  // collision. A puck can only cross an end line THROUGH the goal opening.
+  if(![puck.x,puck.y,puck.vx,puck.vy].every(Number.isFinite)){
+    Object.assign(puck,{x:W/2,y:H/2,vx:0,vy:0});
+  }
+  if(puck.y<=-r*.85&&mouth(puck.x))return 0;
+  if(puck.y>=H+r*.85&&mouth(puck.x))return 1;
+  if(puck.x<r){puck.x=r;puck.vx=Math.abs(puck.vx);}
+  if(puck.x>W-r){puck.x=W-r;puck.vx=-Math.abs(puck.vx);}
+  if(puck.y<r&&!mouth(puck.x)){puck.y=r;puck.vy=Math.abs(puck.vy);}
+  if(puck.y>H-r&&!mouth(puck.x)){puck.y=H-r;puck.vy=-Math.abs(puck.vy);}
   let elapsed=0,remaining=dt,processed=0;
   // A previous hit is unlocked only after a real spatial separation.
   for(const m of motions){
@@ -345,13 +395,30 @@ export function stepPuck(room,dt) {
   // rest of the frame without checking the next collision.
   if(processed>=MAX_COLLISIONS&&remaining>0){puck.vx*=.5;puck.vy*=.5;}
   separateRestingContacts(room,motions);
-  // Guard rails for numerical noise, before velocity is sent to phones.
-  if(puck.x<r&&puck.y>=r&&puck.y<=H-r){puck.x=r;puck.vx=Math.abs(puck.vx);}
-  if(puck.x>W-r&&puck.y>=r&&puck.y<=H-r){puck.x=W-r;puck.vx=-Math.abs(puck.vx);}
+  // A paddle can separate the disc across a border AFTER collision solving.
+  // Enforce the rink again after every single contact (not just at tick start).
+  if(![puck.x,puck.y,puck.vx,puck.vy].every(Number.isFinite)){
+    Object.assign(puck,{x:W/2,y:H/2,vx:0,vy:0});
+    markEvent(room,'reset',W/2,H/2,'auto');
+  }
+  if(puck.y<=-r*.85&&mouth(puck.x))return 0;
+  if(puck.y>=H+r*.85&&mouth(puck.x))return 1;
+  if(puck.x<r+COLLISION_EPS){puck.x=r+COLLISION_EPS;puck.vx=Math.abs(puck.vx);}
+  if(puck.x>W-r-COLLISION_EPS){puck.x=W-r-COLLISION_EPS;puck.vx=-Math.abs(puck.vx);}
+  if(puck.y<r&&!mouth(puck.x)){puck.y=r+COLLISION_EPS;puck.vy=Math.abs(puck.vy);}
+  if(puck.y>H-r&&!mouth(puck.x)){puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);}
   const drag=Math.pow(.99975,dt*60);
   puck.vx*=drag;puck.vy*=drag;
   limitSpeed(puck);
   return null;
+}
+export function recenterPuck(room,now=Date.now()) {
+  // Manual recovery or numeric fail-safe: NO score/time change.
+  serve(room);
+  room.lastTouch=null;
+  room.paddles.forEach(p=>{p.contactLocked=false;p.contactNX=0;p.contactNY=0;});
+  if(room.bot){room.bot.recoverUntil=0;room.bot.thinkAt=0;}
+  markEvent(room,'reset',W/2,H/2,'manual');
 }
 export function spawnPower(room, now=Date.now()){
   if(!room.settings.powers||room.power||room.effect||now<room.nextPowerAt)return;
