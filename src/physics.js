@@ -39,7 +39,11 @@ export function puckRadius(room) {
   return RADII[room.settings?.puckSize || 'M'] * (room.effect?.type === 'giantPuck' ? 1.65 : 1);
 }
 export function paddleRadius(room, i) {
-  return PADDLE_R * (room.effect?.type === 'giantPaddle' && room.effect.owner === i ? 1.42 : 1);
+  const fx=room.effect;
+  if(fx?.type==='giantPaddle' && fx.owner===i)return PADDLE_R*1.42;
+  const n=teamSize(room);
+  if(fx?.type==='miniRival' && (i<n)!==(fx.owner<n))return PADDLE_R*.67;
+  return PADDLE_R;
 }
 function markEvent(room, type, x, y, detail = '') {
   room.lastEvent = { id: (room.lastEvent?.id || 0) + 1, type, x, y, detail };
@@ -228,10 +232,10 @@ const POST_R = 8;
 const COLLISION_EPS = 0.12;
 const MAX_COLLISIONS = 18;
 const SPEED_EPS = 1e-8;
-function limitSpeed(puck, min=0) {
+function limitSpeed(puck, min=0, max=MAX_PUCK_SPEED) {
   const speed=Math.hypot(puck.vx,puck.vy);
   if(!Number.isFinite(speed)) { puck.vx=0;puck.vy=0;return; }
-  if(speed>MAX_PUCK_SPEED){puck.vx*=MAX_PUCK_SPEED/speed;puck.vy*=MAX_PUCK_SPEED/speed;}
+  if(speed>max){puck.vx*=max/speed;puck.vy*=max/speed;}
   else if(speed>0 && speed<min){puck.vx*=min/speed;puck.vy*=min/speed;}
 }
 // Solve |relativePos + relativeVel*t| = contactRadius. Return the first
@@ -298,7 +302,17 @@ function resolvePaddle(room,puck,m,at) {
     const outward=puck.vx*nx+puck.vy*ny;
     if(outward<160){puck.vx+=(160-outward)*nx;puck.vy+=(160-outward)*ny;}
     if(room.effect?.type==='turbo'){puck.vx*=1.16;puck.vy*=1.16;}
-    limitSpeed(puck);
+    // A charged shot requires a real strike by the owning team.
+    const effect=room.effect;
+    const n=teamSize(room);
+    if(effect?.type==='powerShot' && (effect.owner<n)===(m.index<n)){
+      const towardRival=m.index<n?-1:1;
+      puck.vx=clamp(puck.vx*.52,-660,660);
+      puck.vy=towardRival*Math.sqrt(Math.max(0,1380**2-puck.vx**2));
+      room.effect=null;room.nextPowerAt=Date.now()+3000;
+      markEvent(room,'cannon',puck.x,puck.y,String(m.index));
+    }
+    limitSpeed(puck,0,room.effect?.type==='slowPuck'?720:MAX_PUCK_SPEED);
     room.lastTouch=m.index;
     markEvent(room,'hit',puck.x,puck.y,String(m.index));
   }
@@ -442,7 +456,7 @@ export function stepPuck(room,dt) {
   if(puck.y>H-r&&!mouth(puck.x)){puck.y=H-r-COLLISION_EPS;puck.vy=-Math.abs(puck.vy);}
   const drag=Math.pow(.99975,dt*60);
   puck.vx*=drag;puck.vy*=drag;
-  limitSpeed(puck);
+  limitSpeed(puck,0,room.effect?.type==='slowPuck'?720:MAX_PUCK_SPEED);
   return null;
 }
 export function recenterPuck(room,now=Date.now()) {
@@ -455,7 +469,7 @@ export function recenterPuck(room,now=Date.now()) {
 }
 export function spawnPower(room, now=Date.now()){
   if(!room.settings.powers||room.power||room.effect||now<room.nextPowerAt)return;
-  const types=['turbo','giantPuck','giantPaddle'];
+  const types=['turbo','giantPuck','giantPaddle','miniRival','slowPuck','powerShot'];
   const type=types[Math.floor(Math.random()*types.length)];
   room.power={ type, x:80+Math.random()*(W-160),y:260+Math.random()*(H-520),expires:now+9000 };
   room.nextPowerAt=now+12000;
@@ -469,8 +483,9 @@ export function updatePower(room, now=Date.now()) {
   const p=room.puck, power=room.power;
   if(Math.hypot(p.x-power.x,p.y-power.y)>puckRadius(room)+24)return;
   const owner=room.lastTouch??0;
-  room.effect={type:power.type,owner,until:now+6500};
+  room.effect={type:power.type,owner,until:now+(power.type==='powerShot'?9000:6500)};
   if(power.type==='turbo') {p.vx*=1.3;p.vy*=1.3;limitSpeed(p);}
+  if(power.type==='slowPuck') {p.vx*=.58;p.vy*=.58;limitSpeed(p,0,720);}
   markEvent(room,'power',power.x,power.y,power.type);
   room.power=null;
 }

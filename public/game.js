@@ -33,7 +33,7 @@ const roomFromUrl = new URLSearchParams(location.search).get('sala')?.toUpperCas
 const app = {
   ws: null, seat: 0, room: null, name: storage.getItem('ah_name') || '', token: null,
   online: false, desiredJoin: null, // No entrar automáticamente: debe poder elegirse el equipo.
-  pending: null, state: null, oldPhase: null, lastStateAt: 0, lastGoalBy: null,
+  pending: null, state: null, oldPhase: null, lastStateAt: 0, lastGoalBy: null, rttMs:null,
   puckDraw: null, puckFrames: [], remotePaddleFrames: [], clock:{}, trail: [], touchId: null, input: {x: W/2, y: H-127}, inputMoved: false,
   sendAt: 0, localPaddle: null, audioEnabled: storage.getItem('ah_sound') !== 'off', audio: null,
   lastFrame: performance.now(), lastUIAt:0,
@@ -142,6 +142,14 @@ ui.create.addEventListener('click', createFromInput);
 ui.join.addEventListener('click', joinFromInput);
 
 function handleMessage(msg) {
+  if(msg.type==='pong'){
+    const ping=performance.now()-msg.at;
+    if(Number.isFinite(ping) && ping>=0 && ping<5000){
+      app.rttMs=app.rttMs===null?ping:app.rttMs*.72+ping*.28;
+      ui.connectionText.textContent=(app.rttMs>240?'RED LENTA · ':'EN LÍNEA · ')+Math.round(app.rttMs)+'ms';
+    }
+    return;
+  }
   if (msg.type === 'error') { showError(msg.message || 'Ha ocurrido un error.'); return; }
   if (msg.type === 'joined') {
     app.room = msg.code; app.seat = msg.seat; app.token = msg.token;
@@ -300,7 +308,7 @@ function updateUI(){
   const time=s.remainingMs;
   ui.timer.classList.toggle('overtime',s.phase==='overtime');
   ui.timer.textContent=s.phase==='overtime'?'GOL DE ORO':time==null?'∞':`${String(Math.floor(Math.max(0,time)/60000)).padStart(2,'0')}:${String(Math.floor(Math.max(0,time)%60000/1000)).padStart(2,'0')}`;
-  const labels={turbo:'⚡ TURBO',giantPuck:'🔵 DISCO GIGANTE',giantPaddle:'🛡️ PALETA GIGANTE'};
+  const labels={turbo:'⚡ TURBO',giantPuck:'🔵 DISCO GIGANTE',giantPaddle:'🛡️ PALETA GIGANTE',miniRival:'🫧 MINI PALETA RIVAL',slowPuck:'🐢 BOLA LENTA',powerShot:'🚀 DISPARO CARGADO'};
   ui.activePower.classList.toggle('hidden',!s.effect);
   if(s.effect)ui.activePower.textContent=(labels[s.effect.type]||'PODER')+` · ${Math.max(0,Math.ceil((s.effect.until-(s.serverNow+performance.now()-app.lastStateAt))/1000))}s`;
   // Scores follow each team's fixed hue on BOTH phones (pink remains pink).
@@ -821,7 +829,7 @@ const backdrops=[0,1].map(side=>{
 });
 function drawPower(s,t){
   if(!s.power)return;
-  const p=orient(s.power),icons={turbo:'⚡',giantPuck:'●',giantPaddle:'⬡'};
+  const p=orient(s.power),icons={turbo:'⚡',giantPuck:'●',giantPaddle:'⬡',miniRival:'🫧',slowPuck:'🐢',powerShot:'🚀'};
   const glow=.7+Math.sin(t/150)*.18;
   ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.sin(t/450)*.2);
   ctx.shadowColor='#ffd876';ctx.shadowBlur=17*glow;
@@ -835,7 +843,7 @@ function samplePuck(now,phase){
   if(!app.puckFrames.length)return app.puckDraw;
   if(!['playing','overtime'].includes(phase))return {...app.puckFrames.at(-1)};
   return samplePuckPose(app.puckFrames,now,{
-    delayMs:app.state?.settings?.mode==='bot'?115:145,maxExtrapolateMs:35
+    delayMs:app.state?.settings?.mode==='bot'?115:Math.min(245,(app.clock.delayMs||135)+Math.max(0,(app.rttMs||0)-180)*.12),maxExtrapolateMs:105
   });
 }
 
@@ -871,8 +879,8 @@ function drawParticles(dt){
 function sampleRemotePaddle(index, now, fallback) {
   const isBot=app.state?.settings?.mode==='bot';
   const sampled=sampleRemotePose(app.remotePaddleFrames,index,now,{
-    delayMs:isBot?115:145,
-    maxExtrapolateMs:55,
+    delayMs:isBot?115:Math.min(245,(app.clock.delayMs||135)+Math.max(0,(app.rttMs||0)-180)*.12),
+    maxExtrapolateMs:105,
     maxSpeed:isBot?1100:3600,
     bounds:{minX:PADDLE_R,maxX:W-PADDLE_R,minY:PADDLE_R,maxY:H-PADDLE_R}
   });
@@ -919,7 +927,8 @@ function draw(t){
   const displayed=s.paddles.map((pad,i)=>({i,p:orient(pad),mine:i===localIndex,
     team:paddleTeam(s,i),name:namesOnPaddles?s.players[i]?.name:null,
     lane:namesOnPaddles?screenLaneFor(i,s):null,
-    r:s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:PADDLE_R}));
+    r:s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:
+      s.effect?.type==='miniRival' && ((i<(s.paddles.length/2))!==(s.effect.owner<(s.paddles.length/2)))?PADDLE_R*.67:PADDLE_R}));
   for(const pad of displayed.filter(p=>!p.mine)){
     const smoothed=sampleRemotePaddle(pad.i,t,pad.p);
     drawPaddle(smoothed,pad.team,pad.r,pad.name,laneWidth,pad.lane);
@@ -950,4 +959,5 @@ function draw(t){
 
 }
 requestAnimationFrame(draw);
+setInterval(()=>{if(app.online&&app.room)send({type:'ping',at:performance.now()});},3000);
 connect();

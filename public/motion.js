@@ -7,13 +7,19 @@ export function serverFrameTime(clock,serverNow,arrival){
     return {at:arrival,reset:false};
   }
   const at=clock.firstArrival+(serverNow-clock.firstServer);
+  // Track jitter, while keeping the server's timeline independent of packet arrival.
+  const arrivalError=arrival-at;
+  clock.jitter=clock.jitter===undefined?0:clock.jitter*.91+Math.abs(arrivalError-(clock.offset||0))*.09;
+  const targetDelay=clamp(115+clock.jitter*.72,115,235);
+  clock.delayMs=clock.delayMs===undefined?targetDelay:clock.delayMs+clamp(targetDelay-clock.delayMs,-2.5,4.5);
   if(Math.abs(at-arrival)>1800){
     clock.firstServer=serverNow;clock.firstArrival=arrival;
+    clock.jitter=0;clock.delayMs=115;
     return {at:arrival,reset:true};
   }
   return {at,reset:false};
 }
-export function pushSnapshot(frames,snapshot,capacity=20){
+export function pushSnapshot(frames,snapshot,capacity=30){
   const previous=frames[frames.length-1];
   if(previous&&snapshot.at<=previous.at){
     if(previous.at-snapshot.at<2)frames[frames.length-1]=snapshot;
@@ -64,10 +70,20 @@ export function samplePuckPose(frames,now,opts={}){
     }
   }
   const last=frames.at(-1);
-  const dt=clamp((target-last.at)/1000,0,(opts.maxExtrapolateMs??45)/1000);
+  const dt=clamp((target-last.at)/1000,0,(opts.maxExtrapolateMs??105)/1000);
   const r=last.r;
-  return {...last,x:clamp(last.x+last.vx*dt,r,500-r),
-    y:clamp(last.y+last.vy*dt,-r,900+r)};
+  // Screen-only prediction may bounce at walls; real collisions stay authoritative.
+  const bounce=(value,velocity,min,max)=>{
+    const span=max-min;
+    if(span<=0)return min;
+    const raw=((value+velocity*dt-min)%(2*span)+2*span)%(2*span);
+    return min+(raw<=span?raw:2*span-raw);
+  };
+  const x=bounce(last.x,last.vx,r,500-r);
+  const estimatedY=last.y+last.vy*dt;
+  const goalMouth=last.x>250-94+r+3&&last.x<250+94-r-3;
+  const y=goalMouth?clamp(estimatedY,-r*.84,900+r*.84):bounce(last.y,last.vy,r,900-r);
+  return {...last,x,y};
 }
 export function softenPuckPosition(previous,target,dt,maxSpeed=1600){
   if(!previous)return {...target};
