@@ -238,6 +238,18 @@ function paddleTeam(s, paddleIndex) {
 }
 function teamColor(team){return team === 0 ? '#51e5ff' : '#ff65b9';}
 function isTeamMatch(s){return s?.settings?.mode === 'duo' || s?.settings?.mode === 'teams';}
+/**
+ * Carril de la paleta convertido a coordenadas de la pantalla actual.
+ * En el equipo rosado orient(p) rota 180° tanto X como Y; el carril
+ * de la etiqueta debe reflejarse igual o se quedara pegada al centro.
+ * Esta función es SOLO visual, no afecta a la física ni a las entradas.
+ */
+function screenLaneFor(index,s){
+  const perTeam=s?.settings?.mode==='teams'?4:2;
+  const col=index%perTeam;
+  const left=col*W/perTeam, right=(col+1)*W/perTeam;
+  return sideFor(s)===1?[W-right,W-left]:[left,right];
+}
 function isPlaying(s=app.state){return s&&sideFor(s)!==-1&&['playing','overtime','countdown'].includes(s.phase);}
 function labelTeam(s,side){
   if(s.settings?.mode==='tournament'){
@@ -857,8 +869,7 @@ function draw(t){
   const laneWidth=s.settings?.mode==='teams'?105:170;
   const displayed=s.paddles.map((pad,i)=>({i,p:orient(pad),mine:i===localIndex,
     team:paddleTeam(s,i),name:namesOnPaddles?s.players[i]?.name:null,
-    lane:namesOnPaddles?[(i%(s.settings.mode==='teams'?4:2))*W/(s.settings.mode==='teams'?4:2),
-      ((i%(s.settings.mode==='teams'?4:2))+1)*W/(s.settings.mode==='teams'?4:2)]:null,
+    lane:namesOnPaddles?screenLaneFor(i,s):null,
     r:s.effect?.type==='giantPaddle'&&s.effect.owner===i?PADDLE_R*1.42:PADDLE_R}));
   for(const pad of displayed.filter(p=>!p.mine))drawPaddle(pad.p,pad.team,pad.r,pad.name,laneWidth,pad.lane);
   drawPuck(app.puckDraw);

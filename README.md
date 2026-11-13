@@ -1,3 +1,23 @@
+# 🏒 Air Hockey DUO Arena 4.5.1 — Corrección de etiquetas en teléfonos rosados
+
+**Cambio único en el juego:** los carriles de las etiquetas ahora se reflejan junto con las paletas cuando el dispositivo pertenece al equipo rosado. Los nombres de jugadores azules **y** rosados siguen correctamente sus paletas desde cualquiera de las dos perspectivas.
+
+No hay cambios en física, inteligencia del bot, respuesta táctil, WebSockets, música, diseño o reglas. Se renovó la versión de caché de la app instalable.
+
+## Publicación
+
+Descomprime el ZIP y sube el **contenido** a tu repositorio GitHub actual (sin crear proyecto nuevo): `DivisioncomercialindustrialRXGH/air-hockey-duo`. Selecciona **Add file → Upload files**, conserva las carpetas y pulsa **Commit changes** en `main`. Cloudflare publicará automáticamente.
+
+**Nombre de commit sugerido:** `Arena 4.5.1 - Corregir apodos en pantalla rosada`
+
+Después de publicarse, cierra por completo las apps instaladas en ambos teléfonos y vuelve a abrirlas. Si hay sesiones antiguas, abre una sala nueva y verifica los apodos en 2 vs. 2 y 4 vs. 4 desde un teléfono azul y otro rosado.
+
+## Pruebas
+
+`npm run check` valida backend y física. `node --test test/visual-team-lanes.test.js` valida la geometría de carriles en ambas orientaciones. La corrección visual también se comprueba en un navegador de prueba.
+
+**Nota:** La música adjunta contiene obras de terceros; compartirla públicamente puede requerir autorización.
+
 # 🏒 Air Hockey DUO Arena 4.5 — Paletas y equipos identificables
 
 Actualización acumulativa de la versión 4.3: incorpora las correcciones de **4.4** (bot que golpea y respuesta fluida de la paleta en Android) y estas novedades:
