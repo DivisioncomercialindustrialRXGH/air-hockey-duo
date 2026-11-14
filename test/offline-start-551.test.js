@@ -14,9 +14,9 @@ test('local BOT has its own visible launch button with no network requirement',(
  assert.match(game,/import\('\.\/local-bot\.js\?v=5\.5\.2-local\.1'\)/);
 });
 test('offline shell version matches HTML and cache',()=>{
- assert.match(sw,/hockey-duo-v5-5-2-local-smooth/);
- assert.match(html,/game\.js\?v=5\.5\.2-local\.1/);
- assert.match(game,/hockey-duo-v5-5-2-local-smooth/);
+ assert.match(sw,/hockey-duo-v5-5-3-offline-ready/);
+ assert.match(html,/game\.js\?v=5\.5\.3-offline-ready\.1/);
+ assert.match(game,/hockey-duo-v5-5-3-offline-ready/);
 });
 test('optional assets do not abort service worker installation',()=>{
  assert.match(sw,/const OPTIONAL=/);

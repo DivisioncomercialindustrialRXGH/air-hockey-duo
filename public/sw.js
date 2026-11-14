@@ -1,15 +1,16 @@
-/** Air Hockey DUO 5.5.1 OFFLINE HOTFIX · PWA app-shell offline support.
+/** Air Hockey DUO 5.5.3 OFFLINE CACHE READY · PWA app-shell offline support.
  * Cache ONLY the essential engine and UI. Online rooms still need Cloudflare.
  * Local LAN (with PC) is served by its own local Wi-Fi origin.
  */
-const CACHE='hockey-duo-v5-5-2-local-smooth';
+const CACHE='hockey-duo-v5-5-3-offline-ready';
 const CORE=[
-  '/', '/styles.css?v=5.5.1-offline-hotfix.1', '/game.js?v=5.5.2-local.1',
+  '/', '/styles.css?v=5.5.1-offline-hotfix.1', '/game.js?v=5.5.3-offline-ready.1',
   '/motion.js?v=5.5.0-cross-beta.1', '/local-bot.js?v=5.5.2-local.1',
   '/local-duel.js?v=5.5.2-local.1', '/peer-direct.js?v=5.5.2-local.1',
   '/qr-local.js?v=5.4.0-direct.1', '/local-motion.js?v=5.5.2-local.1', '/engine/physics.js',
   '/engine/geometry.js', '/engine/cross.js?v=5.5.0-cross.1', '/cross-view.js?v=5.5.0-cross.1'
 ];
+const READY_MARKER='/__offline_ready_553';
 const OPTIONAL=['/manifest.webmanifest','/favicon.svg','/icon-192.png','/icon-512.png','/icon-180.png','/arena-lab.html'];
 self.addEventListener('install',event=>{
   // If even one mandatory asset is unavailable, installation fails and the
@@ -18,7 +19,9 @@ self.addEventListener('install',event=>{
     const cache=await caches.open(CACHE);
     try {
       await cache.addAll(CORE);
-      await Promise.allSettled(OPTIONAL.map(path=>cache.add(path)));
+      // The marker is written ONLY after every gameplay module is cached.
+      // UI checks this marker instead of maintaining its own (stale) file list.
+      await cache.put(READY_MARKER,new Response('ready',{headers:{'Content-Type':'text/plain'}}));
       await self.skipWaiting();
     }catch(error){
       await caches.delete(CACHE);
@@ -31,7 +34,9 @@ self.addEventListener('activate',event=>{
     self.clients.claim(),
     caches.keys().then(keys=>Promise.all(keys
       .filter(key=>key.startsWith('hockey-duo-') && key!==CACHE)
-      .map(key=>caches.delete(key))))
+      .map(key=>caches.delete(key)))),
+    // Optional icons/preview never delay an offline-ready installation.
+    caches.open(CACHE).then(cache=>Promise.allSettled(OPTIONAL.map(path=>cache.add(path))))
   ]));
 });
 self.addEventListener('fetch',event=>{

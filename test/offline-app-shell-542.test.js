@@ -7,11 +7,16 @@ const root=new URL('../public/',import.meta.url);
 const sw=readFileSync(new URL('sw.js',root),'utf8');
 const html=readFileSync(new URL('index.html',root),'utf8');
 const game=readFileSync(new URL('game.js',root),'utf8');
-const CACHE='hockey-duo-v5-5-2-local-smooth';
-const VERSION='5.5.2-local.1';
+const CACHE='hockey-duo-v5-5-3-offline-ready';
+const VERSION='5.5.3-offline-ready.1';
 function harness(networkWorks=true){
   const listeners={},db=new Map(),deleted=[];
-  const response={ok:true,status:200,type:'basic',clone(){return this;}};
+  class FakeResponse{
+    constructor(){this.ok=true;this.status=200;this.type='basic';}
+    clone(){return this;}
+    static error(){return {status:0};}
+  }
+  const response=new FakeResponse();
   function area(name){
     if(!db.has(name))db.set(name,new Map());
     return {
@@ -32,19 +37,20 @@ function harness(networkWorks=true){
   const fetch=async()=>{if(!networkWorks)throw Error('No Internet');return response;};
   const self={location:{origin:'https://test.invalid'},clients:{claim:async()=>{}},
     addEventListener:(name,cb)=>listeners[name]=cb,skipWaiting:async()=>{}};
-  runInNewContext(sw,{self,caches,fetch,URL,Response:{error:()=>({status:0})}});
-  return {db,listeners,caches,response,deleted};
+  runInNewContext(sw,{self,caches,fetch,URL,Response:FakeResponse});
+  return {db,listeners,caches,response,deleted,FakeResponse};
 }
 test('offline app shell caches every imported local engine and current version',async()=>{
   const h=harness();let pending;
   h.listeners.install({waitUntil:x=>pending=x});await pending;
   const cached=h.db.get(CACHE);assert.ok(cached?.size>=13);
   for(const path of ['/','/engine/physics.js','/engine/geometry.js','/local-duel.js?v=5.5.2-local.1',
-     '/local-bot.js?v=5.5.2-local.1',`/game.js?v=${VERSION}`,'/motion.js?v=5.5.0-cross-beta.1'])assert.ok(cached.has(path),path);
+     '/local-bot.js?v=5.5.2-local.1',`/game.js?v=${VERSION}`,'/motion.js?v=5.5.0-cross-beta.1','/__offline_ready_553'])assert.ok(cached.has(path),path);
   assert.ok(!cached.has('/index.html'),'avoid redirected navigation entry');
   assert.match(html,/id="offline-ready"/);
   assert.match(html,/5\.5\.2-local\.1/);
   assert.match(game,/refreshOfflineReadiness/);
+  assert.match(sw,/await cache\.put\(READY_MARKER/);
   assert.match(game,/navigator\.onLine===false\?'screen':'online'/);
 });
 test('offline restart serves cached PWA shell for any route including room links',async()=>{
@@ -54,7 +60,7 @@ test('offline restart serves cached PWA shell for any route including room links
   let result;
   const f=async()=>{throw Error('Offline');};
   const listeners={};const self={location:{origin:'https://test.invalid'},addEventListener:(name,cb)=>listeners[name]=cb,clients:{claim:async()=>{}},skipWaiting:async()=>{}};
-  runInNewContext(sw,{self,caches:h.caches,fetch:f,URL,Response:{error:()=>({status:0})}});
+  runInNewContext(sw,{self,caches:h.caches,fetch:f,URL,Response:h.FakeResponse});
   listeners.fetch({request:req,respondWith:p=>result=p,waitUntil:x=>calls.push(x)});
   assert.equal(await result,h.response);
 });

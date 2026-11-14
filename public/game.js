@@ -933,38 +933,66 @@ if(LAN_HOST||window.matchMedia('(display-mode: standalone)').matches||navigator.
 // was saved. A connection to local Wi-Fi is still needed for LAN/direct.
 async function refreshOfflineReadiness(){
   const tag=document.querySelector('#offline-ready');
-  if(!tag)return;
-  if(LAN_HOST){tag.dataset.ready='true';tag.textContent='📡 LAN LOCAL · No se necesita Internet. Mantén encendida la computadora anfitriona.';return;}
-  if(!('serviceWorker' in navigator)||!('caches' in window)){
-    tag.dataset.ready='false';tag.textContent='Para abrir el juego sin Internet, usa Safari/Chrome actualizado e instala la app.';return;
-  }
-  const key='hockey-duo-v5-5-2-local-smooth';
-  try{
-    if(!navigator.serviceWorker.controller)throw Error('La página no está controlada por la app guardada');
-    if(!await caches.has(key))throw Error('La descarga aún no termina');
-    const cache=await caches.open(key);
-    const paths=['/','/game.js?v=5.5.0-cross-beta.1','/styles.css?v=5.5.0-cross-beta.1',
-      '/local-duel.js?v=5.5.2-local.1','/local-bot.js?v=5.5.2-local.1','/local-motion.js?v=5.5.2-local.1','/peer-direct.js?v=5.5.2-local.1',
-      '/motion.js?v=5.5.0-cross-beta.1','/engine/physics.js','/engine/geometry.js','/engine/cross.js?v=5.5.0-cross.1','/cross-view.js?v=5.5.0-cross.1'];
-    const matches=await Promise.all(paths.map(path=>cache.match(path)));
-    if(matches.some(m=>!m))throw Error('Faltan archivos locales');
+  if(!tag)return false;
+  if(LAN_HOST){
     tag.dataset.ready='true';
-    tag.textContent='✓ LISTO SIN INTERNET · Dos jugadores en una pantalla y contra BOT. Para LAN, conecta a tu Wi-Fi local.';
+    tag.textContent='📡 LAN LOCAL · No se necesita Internet. Mantén encendida la computadora anfitriona.';
+    return true;
+  }
+  if(!('serviceWorker' in navigator)||!('caches' in window)){
+    tag.dataset.ready='false';
+    tag.textContent='Este navegador no permite guardar la aplicación para jugar sin Internet.';
+    return false;
+  }
+  try{
+    const key='hockey-duo-v5-5-3-offline-ready';
+    if(!await caches.has(key))throw Error('Instalación pendiente');
+    const cache=await caches.open(key);
+    // A single marker written by sw.js avoids two mismatched asset lists.
+    if(!await cache.match('/__offline_ready_553'))throw Error('Archivos esenciales incompletos');
+    tag.dataset.ready='true';
+    tag.textContent='✓ LISTO SIN INTERNET · Una pantalla y BOT disponibles en este dispositivo.';
+    return true;
   }catch{
     tag.dataset.ready='false';
-    tag.textContent='⏳ Instalando archivos locales. Con Internet abre la app y espera a que aparezca «LISTO SIN INTERNET» antes de activar modo avión.';
+    tag.textContent=navigator.onLine===false
+      ? '⚠️ La instalación sin Internet todavía no está completa. Conéctate una vez para terminarla.'
+      : '⏳ Guardando el juego para usarlo sin Internet…';
+    return false;
   }
 }
-window.addEventListener('online',()=>{if(!LAN_HOST && ['online','lan'].includes(selectedTransport))connect();refreshOfflineReadiness();});
-window.addEventListener('offline',()=>{if(!LAN_HOST && selectedTransport==='online'){setConnection(false);ui.connectionText.textContent='SIN INTERNET · ELIGE UNA PANTALLA';}refreshOfflineReadiness();});
+function showOfflineInstallError(){
+  const tag=document.querySelector('#offline-ready');
+  if(tag?.dataset.ready==='true')return;
+  if(tag){
+    tag.dataset.ready='false';
+    tag.textContent='⚠️ No se pudo completar la descarga offline. Actualiza la página con Internet e inténtalo de nuevo.';
+  }
+}
+window.addEventListener('online',()=>{
+  if(!LAN_HOST&&['online','lan'].includes(selectedTransport))connect();
+  refreshOfflineReadiness();
+});
+window.addEventListener('offline',()=>{
+  if(!LAN_HOST&&selectedTransport==='online'){setConnection(false);ui.connectionText.textContent='SIN INTERNET · ELIGE UNA PANTALLA';}
+  refreshOfflineReadiness();
+});
 if('serviceWorker' in navigator)window.addEventListener('load',async()=>{
   try{
-    await navigator.serviceWorker.register('/sw.js');
-    await refreshOfflineReadiness(); // Informar si la caché aún no está lista.
-    await navigator.serviceWorker.ready;
-    await refreshOfflineReadiness();
     navigator.serviceWorker.addEventListener('controllerchange',refreshOfflineReadiness);
-  }catch{refreshOfflineReadiness();}
+    const registration=await navigator.serviceWorker.register('/sw.js');
+    // Do not await serviceWorker.ready here: it can remain pending if an
+    // install fails, leaving the UI displaying "Installing" indefinitely.
+    if(registration.installing){
+      const installing=registration.installing;
+      installing.addEventListener('statechange',()=>{
+        if(installing.state==='redundant')showOfflineInstallError();
+        else refreshOfflineReadiness();
+      });
+    }
+    await refreshOfflineReadiness();
+    navigator.serviceWorker.ready.then(refreshOfflineReadiness).catch(showOfflineInstallError);
+  }catch{showOfflineInstallError();}
 });
 
 
