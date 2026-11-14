@@ -1,7 +1,9 @@
 // Versioned import: a cached 5.0.2 motion.js can never be mixed with this game.js.
-import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.4.2-stability-offline.1';
+import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.5.0-cross-beta.1';
 import {directPeer} from './peer-direct.js?v=5.4.0-direct.1';
 import {qrSvg} from './qr-local.js?v=5.4.0-direct.1';
+import {crossToView,crossViewBounds,crossVelocityToView} from './engine/cross.js?v=5.5.0-cross.1';
+import {drawCrossBoard} from './cross-view.js?v=5.5.0-cross.1';
 const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
 // Local LAN host: both telephones load this page from the computer on the Wi-Fi.
 const LAN_HOST = /^(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(location.hostname) && location.protocol==='http:';
@@ -124,10 +126,13 @@ function updateModeFields(){
   ui.mode.disabled=isDirect||isScreen;
   if(LAN_HOST&&ui.mode.value==='tournament')ui.mode.value='duel';
   ui.botDifficultyOption.classList.toggle('hidden',ui.mode.value!=='bot');
+  // Cruz beta uses pure mallet + puck physics; powers stay disabled until calibrated.
+  ui.powers.disabled=ui.mode.value==='cross';
+  ui.powers.closest('label')?.classList.toggle('muted',ui.mode.value==='cross');
   ui.create.disabled=isDirect||(selectedTransport==='lan'&&!LAN_HOST&&ui.mode.value!=='bot');
   ui.join.disabled=isDirect||isScreen||(selectedTransport==='lan'&&!LAN_HOST);
   ui.create.innerHTML=isScreen?'<span class="button-icon">👆</span> DOS JUGADORES · INICIAR <span class="button-arrow">→</span>':LAN_HOST && ui.mode.value!=='bot'?'<span class="button-icon">📡</span> CREAR SALA WI-FI <span class="button-arrow">→</span>':ui.mode.value==='bot'?'<span class="button-icon">🤖</span> JUGAR CONTRA EL BOT <span class="button-arrow">→</span>':'<span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span>'; 
-  ui.createTeamOption.classList.toggle('hidden',!['duo','teams'].includes(ui.mode.value));
+  ui.createTeamOption.classList.toggle('hidden',!['duo','cross','teams'].includes(ui.mode.value));
 }
 ui.mode.addEventListener('change',updateModeFields);
 updateModeFields();
@@ -489,8 +494,8 @@ function handleMessage(msg) {
     clearRoomRequestTimer();
     app.pending=null;
     app.room = msg.code; app.seat = msg.seat; app.token = msg.token;
-    app.musicPausedByUser=false; app.musicRequested=false; ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[msg.settings?.mode]||'DUELO';
-    ui.voiceButton.disabled= LAN_HOST || !!app.localBot || !!app.p2p || !['duel','duo'].includes(msg.settings?.mode);
+    app.musicPausedByUser=false; app.musicRequested=false; ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2 CLÁSICO',cross:'CRUZ 2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[msg.settings?.mode]||'DUELO';
+    ui.voiceButton.disabled= LAN_HOST || !!app.localBot || !!app.p2p || !['duel','duo','cross'].includes(msg.settings?.mode);
     ui.voiceButton.classList.toggle('hidden',msg.settings?.mode==='bot');
     ui.chatToggle.classList.toggle('hidden',msg.settings?.mode==='bot'||!!app.localBot||!!app.p2p);
     ui.share.classList.toggle('hidden',msg.settings?.mode==='bot'||!!app.localBot||!!app.p2p);
@@ -500,7 +505,8 @@ function handleMessage(msg) {
     (msg.chat||[]).forEach(addChat);
     app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.clock={};app.inputSeq=0;app.lastSent=null;app.compHits=0; app.localPaddle = null;app.inputMoved=false;
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
-    app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
+    app.input = msg.settings?.mode==='cross'?{x:450,y:760}:{x:W/2,y:H-127}; app.inputMoved = false;
+    ui.frame.classList.toggle('cross-arena',msg.settings?.mode==='cross');
     if(!app.localBot&&!app.p2p)storage.setItem('ah_token_' + msg.code, msg.token);
     const url = new URL(location.href); if(app.localBot||app.p2p)url.searchParams.delete('sala');else url.searchParams.set('sala', msg.code); history.replaceState(null,'',url);
     ui.home.classList.add('hidden'); ui.game.classList.remove('hidden');
@@ -534,7 +540,7 @@ function handleMessage(msg) {
     const oldSide=prev?sideFor(prev):sideFor(msg);
     if(prev&&oldSide!==sideFor(msg)){
       app.localPaddle=null;
-      app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.remotePaddleFrames=[];app.trail=[];app.input={x:W/2,y:H-127};
+      app.inputMoved=false;app.puckDraw=null;app.puckFrames=[];app.remotePaddleFrames=[];app.trail=[];app.input=msg.settings?.mode==='cross'?{x:450,y:760}:{x:W/2,y:H-127};
     }
     app.lastStateAt=performance.now();
     // Server timestamps are uniformly spaced even if packets arrive in bursts.
@@ -548,9 +554,11 @@ function handleMessage(msg) {
     }
     pushSnapshot(app.remotePaddleFrames,{at:msg.serverNow,poses:msg.paddles.map(p=>({...orient(p,msg),r:p.r}))});
     const facing=sideFor(msg)===1?-1:1;
+    const v=msg.settings?.mode==='cross'?crossVelocityToView(app.seat,msg.puck):{vx:msg.puck.vx*facing,vy:msg.puck.vy*facing};
     const oriented=orient(msg.puck,msg);
     pushSnapshot(app.puckFrames,{at:msg.serverNow,x:oriented.x,y:oriented.y,
-      vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R,
+      vx:v.vx,vy:v.vy,r:msg.puck.r||PUCK_R,
+      eventContact:msg.event?.id!==prev?.event?.id&&['hit','wall'].includes(msg.event?.type)&&Number.isFinite(msg.event?.at)?{...crossEventContact(msg.event,msg)}:null,
       eventKind:msg.event?.id!==prev?.event?.id?msg.event?.type:null});
     if (msg.event && msg.event.id > app.lastEventSeen) {
       app.lastEventSeen=msg.event.id;
@@ -583,23 +591,25 @@ function handleMessage(msg) {
     if(phaseChanged||performance.now()-app.lastUIAt>120){updateUI();app.lastUIAt=performance.now();}
   }
 }
+function crossEventContact(e,s){return {at:e.at,...orient(e,s)};}
+function isCross(s=app.state){return s?.settings?.mode==='cross';}
 function sideFor(s=app.state){
   if(!s)return 0;
   const mode=s.settings?.mode;
   if(mode==='tournament')return s.activeSeats?.indexOf(app.seat)??-1;
-  if(mode==='duo')return app.seat<2?0:1;
+  if(mode==='duo'||mode==='cross')return app.seat<2?0:1;
   if(mode==='teams')return app.seat<4?0:1;
   return app.seat;
 }
 /** Team color belongs to the player's seat, NEVER to who is viewing this screen. */
 function paddleTeam(s, paddleIndex) {
   const mode = s?.settings?.mode;
-  if (mode === 'duo') return paddleIndex < 2 ? 0 : 1;
+  if (mode === 'duo'||mode==='cross') return paddleIndex < 2 ? 0 : 1;
   if (mode === 'teams') return paddleIndex < 4 ? 0 : 1;
   return paddleIndex === 0 ? 0 : 1;
 }
 function teamColor(team){return team === 0 ? '#51e5ff' : '#ff65b9';}
-function isTeamMatch(s){return s?.settings?.mode === 'duo' || s?.settings?.mode === 'teams';}
+function isTeamMatch(s){return ['duo','cross','teams'].includes(s?.settings?.mode);}
 /**
  * Carril de la paleta convertido a coordenadas de la pantalla actual.
  * En el equipo rosado orient(p) rota 180° tanto X como Y; el carril
@@ -617,7 +627,7 @@ function labelTeam(s,side){
   if(s.settings?.mode==='tournament'){
     const seat=s.activeSeats?.[side];return seat==null?'ESPERANDO':s.players[seat]?.name||`Jugador ${seat+1}`;
   }
-  if(s.settings?.mode==='duo'||s.settings?.mode==='teams')return side===0?'AZUL':'ROSA';
+  if(['duo','cross','teams'].includes(s.settings?.mode))return side===0?'AZUL':'ROSA';
   return s.players[side]?.name||`Jugador ${side+1}`;
 }
 function updateRanking(s){
@@ -642,8 +652,8 @@ function updateRanking(s){
 function updateUI(){
   const s=app.state;if(!s)return;
   const mine=sideFor(s),view=mine===-1?0:mine,other=1-view;
-  const formats={duel:'DUELO 1 vs 1',duo:'EQUIPOS 2 vs 2',teams:'EQUIPOS 4 vs 4',tournament:'TORNEO',bot:'ENTRENAMIENTO VS BOT'};
-  ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[s.settings?.mode]||'DUELO';
+  const formats={duel:'DUELO 1 vs 1',cross:'ARENA CRUZ 2 vs 2',duo:'EQUIPOS 2 vs 2',teams:'EQUIPOS 4 vs 4',tournament:'TORNEO',bot:'ENTRENAMIENTO VS BOT'};
+  ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2 CLÁSICO',cross:'CRUZ 2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[s.settings?.mode]||'DUELO';
   ui.goalLabel.textContent=`A ${s.settings?.maxScore||7} GOLES · DISCO ${s.settings?.puckSize||'M'}`;
   const time=s.remainingMs;
   ui.timer.classList.toggle('overtime',s.phase==='overtime');
@@ -657,14 +667,14 @@ function updateUI(){
   ui.myScore.textContent=s.scores[view]||0;ui.opScore.textContent=s.scores[other]||0;
   ui.myName.textContent=labelTeam(s,view);ui.opName.textContent=labelTeam(s,other);
   const count=s.players.filter(p=>p?.connected).length;
-  const teamCount=s.settings?.mode==='duo'?2:s.settings?.mode==='teams'?4:0;
+  const teamCount=['duo','cross'].includes(s.settings?.mode)?2:s.settings?.mode==='teams'?4:0;
   if(teamCount){
     const blue=s.players.slice(0,teamCount).map(p=>p?.name||'Disponible').join(' · ');
     const pink=s.players.slice(teamCount).map(p=>p?.name||'Disponible').join(' · ');
     ui.playersStatusText.textContent=`👥 ${count}/${s.players.length} conectados · 🔵 AZUL: ${blue} · 🩷 ROSADO: ${pink}`;
   }else ui.playersStatusText.textContent=`${formats[s.settings?.mode]||'PARTIDA'} · 👥 ${count}/${s.players.length} conectados${mine===-1?' · Esperando tu turno':''}`;
   updateRanking(s);
-  ui.hint.textContent=isSharedScreen()?'👆 Azul controla abajo · Rosa controla arriba · dos dedos':mine===-1?'👀 Estás viendo el partido. ¡Tu turno llegará!':s.settings?.mode==='duo'||s.settings?.mode==='teams'?'Desliza tu paleta dentro de tu carril · ¡A ganar en equipo!':'Desliza tu paleta · ¡Atrapa los poderes!';
+  ui.hint.textContent=isSharedScreen()?'👆 Azul controla abajo · Rosa controla arriba · dos dedos':mine===-1?'👀 Estás viendo el partido. ¡Tu turno llegará!':s.settings?.mode==='cross'?'Arena Cruz: protege tu portería y marca en cualquier arco rival':s.settings?.mode==='duo'||s.settings?.mode==='teams'?'Desliza tu paleta dentro de tu carril · ¡A ganar en equipo!':'Desliza tu paleta · ¡Atrapa los poderes!';
   const show=!['playing','overtime'].includes(s.phase)||mine===-1;
   ui.gameOverlay.classList.toggle('hidden',!show);
   ui.gameOverlay.classList.toggle('transparent',['countdown','goal','tournament_wait'].includes(s.phase));
@@ -741,7 +751,7 @@ ui.leave.addEventListener('click', () => {
   app.pending = null; app.touchId = null; app.localPaddle=null;app.musicPausedByUser=false;closeControlPanels();stopMusic();stopVoice();
   oldWs?.close();
   const url = new URL(location.href); url.searchParams.delete('sala'); history.replaceState(null,'',url);
-  ui.game.classList.add('hidden'); ui.home.classList.remove('hidden');
+  ui.game.classList.add('hidden'); ui.home.classList.remove('hidden');ui.frame.classList.remove('cross-arena');
   ui.error.textContent = ''; if(selectedTransport==='online'||selectedTransport==='lan')connect();else setConnection(false);
 });
 // Paneles flotantes: mantienen la pista a tamaño completo y se cierran entre sí.
@@ -917,13 +927,13 @@ async function refreshOfflineReadiness(){
   if(!('serviceWorker' in navigator)||!('caches' in window)){
     tag.dataset.ready='false';tag.textContent='Para abrir el juego sin Internet, usa Safari/Chrome actualizado e instala la app.';return;
   }
-  const key='hockey-duo-v5-4-2-stability-offline';
+  const key='hockey-duo-v5-5-0-cross-beta';
   try{
     if(!await caches.has(key))throw Error('La descarga aún no termina');
     const cache=await caches.open(key);
-    const paths=['/','/game.js?v=5.4.2-stability-offline.1','/styles.css?v=5.4.2-stability-offline.1',
+    const paths=['/','/game.js?v=5.5.0-cross-beta.1','/styles.css?v=5.5.0-cross-beta.1',
       '/local-duel.js?v=5.4.0-direct.1','/local-bot.js?v=5.3.0-choices.1',
-      '/motion.js?v=5.4.2-stability-offline.1','/engine/physics.js','/engine/geometry.js'];
+      '/motion.js?v=5.5.0-cross-beta.1','/engine/physics.js','/engine/geometry.js','/engine/cross.js?v=5.5.0-cross.1','/cross-view.js?v=5.5.0-cross.1'];
     const matches=await Promise.all(paths.map(path=>cache.match(path)));
     if(matches.some(m=>!m))throw Error('Faltan archivos locales');
     tag.dataset.ready='true';
@@ -1006,12 +1016,12 @@ ui.voiceButton.addEventListener('click',async()=>{
   }catch{alert('No fue posible activar el micrófono. Revisa los permisos del navegador.');}
 });
 
-function ownBounds(){return localBounds(app.state,app.seat,sideFor());}
+function ownBounds(){return isCross()?crossViewBounds(app.state?.paddles?.[app.seat]?.r??37):localBounds(app.state,app.seat,sideFor());}
 function pointerPosition(e){
-  const rect=ui.arena.getBoundingClientRect(),b=ownBounds();
+  const rect=ui.arena.getBoundingClientRect(),b=ownBounds(),size=isCross()?900:W,sy=isCross()?900:H;
   return {
-    x:Math.min(b.hi,Math.max(b.lo,(e.clientX-rect.left)/rect.width*W)),
-    y:Math.min(b.maxY,Math.max(b.minY,(e.clientY-rect.top)/rect.height*H))
+    x:Math.min(b.hi,Math.max(b.lo,(e.clientX-rect.left)/rect.width*size)),
+    y:Math.min(b.maxY,Math.max(b.minY,(e.clientY-rect.top)/rect.height*sy))
   };
 }
 function moveInput(e, force=false) {
@@ -1082,7 +1092,7 @@ function resizeCanvas() {
   ui.arena.height = Math.max(1,Math.round(rect.height*ratio));
 }
 new ResizeObserver(resizeCanvas).observe(ui.arena);
-const orient = (p,s=app.state) => sideFor(s) === 1 ? {x:W-p.x,y:H-p.y} : {x:p.x,y:p.y};
+const orient = (p,s=app.state) => isCross(s)?crossToView(app.seat,p):sideFor(s) === 1 ? {x:W-p.x,y:H-p.y} : {x:p.x,y:p.y};
 function roundRect(x,y,w,h,r) {
   const rad = Math.min(r,w/2,h/2);
   ctx.beginPath();ctx.moveTo(x+rad,y);ctx.arcTo(x+w,y,x+w,y+h,rad);ctx.arcTo(x+w,y+h,x,y+h,rad);ctx.arcTo(x,y+h,x,y,rad);ctx.arcTo(x,y,x+w,y,rad);ctx.closePath();
@@ -1249,7 +1259,8 @@ function samplePuck(now,phase){
   if(!['playing','overtime'].includes(phase))return {...app.puckFrames.at(-1)};
   return samplePuckPose(app.puckFrames,app.renderTime??now,{
     delayMs:0,
-    maxExtrapolateMs:50
+    maxExtrapolateMs:isCross()?24:50,
+    board:isCross()?'cross':'classic'
   });
 }
 
@@ -1284,15 +1295,53 @@ function drawParticles(dt){
  * 4.7 uses 30Hz snapshots for solo games and an adaptive visual buffer. */
 function sampleRemotePaddle(index, now, fallback) {
   const isBot=app.state?.settings?.mode==='bot';
+  const xMax=isCross()?900:W,yMax=isCross()?900:H;
   const sampled=sampleRemotePose(app.remotePaddleFrames,index,app.renderTime??now,{
     delayMs:0,
     maxExtrapolateMs:50,
     maxSpeed:isBot?1100:3600,
-    bounds:{minX:PADDLE_R,maxX:W-PADDLE_R,minY:PADDLE_R,maxY:H-PADDLE_R}
+    bounds:{minX:PADDLE_R,maxX:xMax-PADDLE_R,minY:PADDLE_R,maxY:yMax-PADDLE_R}
   });
   return sampled||fallback;
 }
 
+function drawCrossGame(t,dt){
+  const s=app.state,seat=app.seat;
+  ctx.setTransform(ui.arena.width/900,0,0,ui.arena.height/900,0,0);
+  drawCrossBoard(ctx,seat);
+  if(!s)return;
+  if(keys.size&&isPlaying(s)){
+    const vx=(keys.has('ArrowRight')||keys.has('KeyD')?1:0)-(keys.has('ArrowLeft')||keys.has('KeyA')?1:0);
+    const vy=(keys.has('ArrowDown')||keys.has('KeyS')?1:0)-(keys.has('ArrowUp')||keys.has('KeyW')?1:0);
+    const b=ownBounds();app.input.x=Math.max(b.lo,Math.min(b.hi,app.input.x+vx*900*dt));
+    app.input.y=Math.max(b.minY,Math.min(b.maxY,app.input.y+vy*900*dt));
+    app.inputV={x:vx*900,y:vy*900};app.inputMoved=true;
+    if(t-app.sendAt>=16)sendMove(app.input);
+  }
+  if(app.inputMoved&&isPlaying(s)&&(!app.lastSent||app.lastSent.x!==app.input.x||app.lastSent.y!==app.input.y))sendMove(app.input);
+  app.renderTime=playoutTime(app.clock,t);
+  const target=samplePuck(t,s.phase)||{...orient(s.puck),r:s.puck.r||PUCK_R};
+  app.puckDraw=['playing','overtime'].includes(s.phase)?softenPuckPosition(app.puckDraw,target,dt):{...target};
+  for(let i=0;i<s.paddles.length;i++){
+    if(i===seat)continue;
+    const p=orient(s.paddles[i]);
+    const smoothed=sampleRemotePaddle(i,t,p);
+    drawPaddle(smoothed,i<2?0:1,s.paddles[i].r||37,null);
+  }
+  drawPuck(app.puckDraw);
+  const me=orient(s.paddles[seat]);
+  if(me){
+    const b=ownBounds(),wanted=app.inputMoved?app.input:me;
+    const requested={x:Math.max(b.lo,Math.min(b.hi,wanted.x)),y:Math.max(b.minY,Math.min(b.maxY,wanted.y))};
+    const ack=s.paddles[seat].ack;
+    if(ack===app.inputSeq&&t-app.prevInputAt>120&&!keys.size){requested.x=me.x;requested.y=me.y;}
+    if(!app.localPaddle)app.localPaddle={...me};
+    const pad=app.localPaddle,dx=requested.x-pad.x,dy=requested.y-pad.y,dist=Math.hypot(dx,dy);
+    if(dist>.001){const frac=Math.min(1,3600*dt/dist);pad.x+=dx*frac;pad.y+=dy*frac;}
+    drawPaddle(pad,seat<2?0:1,s.paddles[seat].r||37);
+  }
+  drawParticles(dt);
+}
 function draw(t){
   if(ui.game.classList.contains('hidden')||document.hidden){
     app.nextPaintAt=0;
@@ -1316,6 +1365,7 @@ function draw(t){
       app.directSendAt=t;app.directLastPhase=localState.phase;app.directLastEvent=localState.event?.id;
     }
   }
+  if(isCross(app.state)){drawCrossGame(t,dt);return;}
   ctx.setTransform(ui.arena.width/W,0,0,ui.arena.height/H,0,0);
   ctx.drawImage(backdrops[sideFor(app.state)===1?1:0],0,0,W,H);
   const s=app.state;

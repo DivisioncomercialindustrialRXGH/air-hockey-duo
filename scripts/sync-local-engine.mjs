@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 const check = process.argv.includes('--check');
-for(const name of ['physics.js','geometry.js']){
+for(const name of ['physics.js','geometry.js','cross.js']){
   const src=readFileSync(new URL(`../src/${name}`,import.meta.url));
   const output=new URL(`../public/engine/${name}`,import.meta.url);
   if(check){

@@ -59,3 +59,35 @@ test('LAN connects two phones with code, two paddles and no Cloudflare',async()=
     const before=await (await fetch(url+'/health')).json();assert.equal(before.rooms,1);
   }finally{try{a?.close();b?.close();}catch{}child.kill('SIGTERM');}
 });
+
+test('LAN Cruz 2v2 runs four independently controlled phones on a private Wi-Fi host',async()=>{
+  const port=await getPort();
+  const child=spawn(process.execPath,['lan/server.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:String(port),HOST:'127.0.0.1'},stdio:['ignore','pipe','pipe']});
+  let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
+  const host='http://127.0.0.1:'+port,devices=[];
+  try{
+    let ok=false;
+    for(let i=0;i<60;i++){try{if((await fetch(host+'/health')).ok){ok=true;break;}}catch{}await sleep(40);}
+    assert.ok(ok,'LAN did not start '+logs);
+    for(let i=0;i<4;i++){
+      const ws=new WebSocket(host.replace('http','ws')+'/ws');
+      await new Promise((res,rej)=>{ws.addEventListener('open',res,{once:true});ws.addEventListener('error',rej,{once:true});});
+      devices.push(ws);
+    }
+    const createdPromise=nextEvent(devices[0],m=>m.type==='joined');
+    devices[0].send(JSON.stringify({type:'create',name:'Azul 1',team:'blue',settings:{mode:'cross',maxScore:3}}));
+    const created=await createdPromise;
+    assert.equal(created.settings.mode,'cross');
+    for(let i=1;i<4;i++){
+      const response=nextEvent(devices[i],m=>m.type==='joined');
+      devices[i].send(JSON.stringify({type:'join',code:created.code,name:'Jugador '+i,team:i<2?'blue':'pink'}));
+      assert.equal((await response).seat,i);
+    }
+    const running=nextEvent(devices[0],m=>m.type==='state'&&m.phase==='playing',6500);
+    const state=await running;
+    assert.equal(state.paddles.length,4);assert.equal(state.settings.mode,'cross');
+    const acks=devices.map((ws,i)=>nextEvent(ws,m=>m.type==='state'&&m.paddles[i].ack===100+i));
+    devices.forEach((ws,i)=>ws.send(JSON.stringify({type:'move',x:450,y:760,seq:100+i})));
+    await Promise.all(acks);
+  }finally{for(const ws of devices)try{ws.close();}catch{}child.kill('SIGTERM');}
+});

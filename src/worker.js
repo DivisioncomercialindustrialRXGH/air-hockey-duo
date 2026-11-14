@@ -6,6 +6,7 @@ import {
   stepPuckCompensated,setViewInput,clearViewInput,clearLagHistory,viewLag,lagCompConfig
 } from './physics.js';
 import {trackSnapshot,acceptMove} from './input.js';
+import {crossFromView} from './cross.js';
 import {
   initializeTournament,prepareTournamentMatch,finishTournamentMatch,leaderboard
 } from './tournament.js';
@@ -13,7 +14,7 @@ import {
 const LETTERS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_TTL=30*60*1000, SEAT_TTL=2*60*1000, MAX_ROOMS=45;
 const online=ws=>Boolean(ws&&ws.readyState===1);
-const RELEASE='5.3.0-rc.1-online-lan-choice';
+const RELEASE='5.5.0-rc.1-arena-cruz-beta';
 const respond=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 export default {
   async fetch(request,env){
@@ -184,13 +185,13 @@ export class HockeyHub extends DurableObject {
           // Fixed authoritative physics + validated temporal impulse for the hitter.
           const scorer=stepPuckCompensated(r,dt,{...this.lagComp,now:stepNow});
           if(scorer!==null){this.goal(r,scorer);changed=true;}
-          else updatePower(r,stepNow);
+          else if(r.settings.mode!=='cross')updatePower(r,stepNow);
         }
       }
       } // End of bounded physics catch-up substeps.
       // Predictable cadence: don't flood the WebSocket after every collision.
       // 1v1/solo: 30Hz; teams: 20Hz to keep payload costs reasonable.
-      const sendHz=['duo','teams'].includes(r.settings.mode)?20:30;
+      const sendHz=['duo','cross','teams'].includes(r.settings.mode)?20:30;
       if(substeps&&now-(r.lastStateSentAt||0)>=1000/sendHz-.5){r.lastStateSentAt=now;this.notify(r);}
     }
     if(changed){this.updateTimer();this.ctx.waitUntil(this.persist());}
@@ -206,7 +207,7 @@ export class HockeyHub extends DurableObject {
     if(seat<0 && r.settings.mode==='tournament'&&r.tournament?.started)return this.send(ws,{type:'error',message:'El torneo ya comenzó. No admite nuevos jugadores.'});
     if(seat<0){
       const requested=msg.team==='blue'?0:msg.team==='pink'?1:-1;
-      const teamCount=r.settings.mode==='duo'?2:r.settings.mode==='teams'?4:0;
+      const teamCount=['duo','cross'].includes(r.settings.mode)?2:r.settings.mode==='teams'?4:0;
       if(teamCount && requested!==-1){
         const offset=requested*teamCount;
         seat=r.players.findIndex((p,i)=>p===null&&i>=offset&&i<offset+teamCount);
@@ -266,7 +267,8 @@ export class HockeyHub extends DurableObject {
       const now=Date.now(),input=acceptMove(ws,msg,now,this.lagComp.maxMs);
       if(!input)return;
       const side=teamOf(r,a.seat),b=boundsForPaddle(r,idx);
-      const rx=side===1?W-msg.x:msg.x,ry=side===1?H-msg.y:msg.y;
+      const world=r.settings.mode==='cross'?crossFromView(idx,{x:msg.x,y:msg.y}):null;
+      const rx=world?world.x:side===1?W-msg.x:msg.x,ry=world?world.y:side===1?H-msg.y:msg.y;
       const pad=r.paddles[idx];pad.tx=clamp(rx,b.minX,b.maxX);pad.ty=clamp(ry,b.minY,b.maxY);
       pad.inputSeq=input.seq;
       clearViewInput(r,idx);

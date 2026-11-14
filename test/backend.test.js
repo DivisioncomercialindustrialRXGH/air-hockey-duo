@@ -12,11 +12,13 @@ const workerUrl = new URL('../src/worker.js', import.meta.url);
 const physicsUrl = new URL('../src/physics.js', import.meta.url);
 const inputUrl = new URL('../src/input.js', import.meta.url);
 const tournamentUrl = new URL('../src/tournament.js', import.meta.url);
+const crossUrl = new URL('../src/cross.js', import.meta.url);
 const workerCode = readFileSync(workerUrl, 'utf8')
   .replace("import { DurableObject } from 'cloudflare:workers';", 'const DurableObject = globalThis.__HockeyFakeDurableObject;')
   .replace("from './input.js';", `from '${inputUrl.href}';`)
   .replace("from './physics.js';", `from '${physicsUrl.href}';`)
-  .replace("from './tournament.js';", `from '${tournamentUrl.href}';`);
+  .replace("from './tournament.js';", `from '${tournamentUrl.href}';`)
+  .replace("from './cross.js';", `from '${crossUrl.href}';`);
 const { HockeyHub } = await import(`data:text/javascript;base64,${Buffer.from(workerCode).toString('base64')}`);
 
 class Socket {
@@ -342,4 +344,28 @@ test('a multi-second stall has bounded catch-up and observable discarded time',a
   hub.tick(4000,3000);
   assert.ok(Math.abs(hub.simNow-4000)<1e-6);
   assert.ok(hub.droppedMs>=2800);assert.ok(hub.accumulatorMs<1000/60);
+});
+
+test('Cruz 2v2 Worker: four seats with camera-aligned inputs, own goal awards opponent', async()=>{
+  const ctx=new Context(),hub=new HockeyHub(ctx,{});await ctx.ready;
+  const devices=Array.from({length:4},()=>new Socket());ctx.sockets.push(...devices);
+  await send(hub,devices[0],{type:'create',name:'Azul arriba',team:'blue',settings:{mode:'cross',powers:true,maxScore:3}});
+  const code=devices[0].ofType('joined')[0].code;
+  await send(hub,devices[1],{type:'join',code,name:'Azul abajo',team:'blue'});
+  await send(hub,devices[2],{type:'join',code,name:'Rosa izquierda',team:'pink'});
+  await send(hub,devices[3],{type:'join',code,name:'Rosa derecha',team:'pink'});
+  const r=hub.rooms.get(code);
+  assert.deepEqual(devices.map(ws=>ws.ofType('joined')[0].seat),[0,1,2,3]);
+  assert.equal(r.settings.powers,false);assert.equal(r.paddles.length,4);assert.equal(r.phase,'countdown');
+  for(let seat=0;seat<4;seat++){
+    await send(hub,devices[seat],{type:'move',x:460,y:770,seq:seat+10});
+    assert.equal(r.paddles[seat].inputSeq,seat+10);
+  }
+  assert.ok(r.paddles[0].ty<390);assert.ok(r.paddles[1].ty>510);
+  assert.ok(r.paddles[2].tx<390);assert.ok(r.paddles[3].tx>510);
+  const snapshot=devices[2].ofType('state').at(-1);
+  assert.equal(snapshot.settings.mode,'cross');assert.equal(snapshot.players.length,4);
+  hub.goal(r,1);await ctx.flush();assert.deepEqual(r.scores,[0,1]);
+  for(const ws of devices)ws.close();
+  clearInterval(hub.timer);hub.timer=null;
 });

@@ -1,4 +1,5 @@
 import {projectMallet} from './geometry.js';
+import {crossStartPaddles,crossBounds,crossServe,stepCrossPuck} from './cross.js';
 /** Shared deterministic physics for the Cloudflare room authority. */
 export const W = 500, H = 900;
 export const PADDLE_R = 37, PUCK_R = 16, GOAL_HALF = 94;
@@ -20,20 +21,20 @@ const RADII = { S: 12, M: 16, L: 23 };
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 export const DEFAULT_SETTINGS = Object.freeze({ mode: 'duel', botDifficulty:'hard', tournamentSize: 8, puckSize: 'M', maxScore: 7, timeLimit: 120, powers: true });
 export const TOURNAMENT_CAP = 32;
-export const teamSize = room => room.settings.mode === 'duo' ? 2 : room.settings.mode === 'teams' ? 4 : 1;
-export const teamOf = (room, seat) => ['teams','duo'].includes(room.settings.mode) ? (seat < teamSize(room) ? 0 : 1) : room.settings.mode === 'tournament' ? (room.activeSeats?.[0] === seat ? 0 : room.activeSeats?.[1] === seat ? 1 : -1) : seat;
+export const teamSize = room => ['duo','cross'].includes(room.settings.mode) ? 2 : room.settings.mode === 'teams' ? 4 : 1;
+export const teamOf = (room, seat) => ['teams','duo','cross'].includes(room.settings.mode) ? (seat < teamSize(room) ? 0 : 1) : room.settings.mode === 'tournament' ? (room.activeSeats?.[0] === seat ? 0 : room.activeSeats?.[1] === seat ? 1 : -1) : seat;
 export const paddleSeat = (room, index) => room.settings.mode === 'tournament' ? room.activeSeats?.[index] : index;
 export const activePaddle = (room, seat) => room.settings.mode === 'tournament' ? room.activeSeats?.indexOf(seat) ?? -1 : seat;
-export const seatsRequired = room => room.settings.mode === 'teams' ? 8 : room.settings.mode === 'duo' ? 4 : room.settings.mode === 'tournament' ? room.settings.tournamentSize : 2;
+export const seatsRequired = room => room.settings.mode === 'teams' ? 8 : ['duo','cross'].includes(room.settings.mode) ? 4 : room.settings.mode === 'tournament' ? room.settings.tournamentSize : 2;
 export function sanitizeSettings(value = {}) {
   return {
-    mode: ['duel','bot','duo','teams','tournament'].includes(value.mode) ? value.mode : 'duel',
+    mode: ['duel','bot','duo','cross','teams','tournament'].includes(value.mode) ? value.mode : 'duel',
     botDifficulty: ['easy','hard','god'].includes(value.botDifficulty) ? value.botDifficulty : 'hard',
     tournamentSize: [4,8,16,32].includes(Number(value.tournamentSize)) ? Number(value.tournamentSize) : 8,
     puckSize: Object.hasOwn(RADII, value.puckSize) ? value.puckSize : 'M',
     maxScore: [3, 5, 7, 10, 15].includes(Number(value.maxScore)) ? Number(value.maxScore) : 7,
     timeLimit: [0, 60, 90, 120, 180, 300].includes(Number(value.timeLimit)) ? Number(value.timeLimit) : 120,
-    powers: value.powers !== false
+    powers: value.mode==='cross'?false:value.powers !== false
   };
 }
 export function puckRadius(room) {
@@ -49,12 +50,13 @@ export function paddleRadius(room, i) {
   return PADDLE_R;
 }
 function markEvent(room, type, x, y, detail = '', extra) {
-  room.lastEvent = { id: (room.lastEvent?.id || 0) + 1, type, x, y, detail, ...extra };
+  room.lastEvent = { id: (room.lastEvent?.id || 0) + 1, type, x, y, detail, at:room.simTime??Date.now(), ...extra };
   // Lag compensation may only rewind across deterministic wall/post bounces.
   if(type!=='wall')lagState(room).nonWall++;
   room.eventLog?.push(room.lastEvent); // test hook (undefined in production)
 }
 function startingPaddles(mode) {
+  if(mode==='cross')return crossStartPaddles();
   const n = mode === 'teams' ? 8 : mode === 'duo' ? 4 : 2;
   const nTeam = n/2;
   return Array.from({length:n}, (_,i) => {
@@ -67,14 +69,14 @@ function startingPaddles(mode) {
 export function makeRoom(code, settings = {}) {
   const s = sanitizeSettings(settings);
   return {
-    code, settings:s, players:Array.from({length:s.mode==='teams'?8:s.mode==='duo'?4:s.mode==='tournament'?s.tournamentSize:2},()=>null),
-    activeSeats:s.mode==='tournament'?[]:s.mode==='teams'?[0,1,2,3,4,5,6,7]:s.mode==='duo'?[0,1,2,3]:[0,1],
+    code, settings:s, players:Array.from({length:s.mode==='teams'?8:['duo','cross'].includes(s.mode)?4:s.mode==='tournament'?s.tournamentSize:2},()=>null),
+    activeSeats:s.mode==='tournament'?[]:s.mode==='teams'?[0,1,2,3,4,5,6,7]:['duo','cross'].includes(s.mode)?[0,1,2,3]:[0,1],
     tournament:s.mode==='tournament'?{started:false,finished:false,champion:null,round:0,history:[],queue:[],winners:[],stats:{},entrants:[]}:null,
     phase:'waiting', scores:[0,0], winner:null,goalBy:null,phaseEnd:0,pauseMessage:'',lastUsed:Date.now(),
     elapsedMs:0,remainingMs:s.timeLimit?s.timeLimit*1000:null,lastTouch:null,power:null,effect:null,nextPowerAt:0,
-    lastEvent:{id:0,type:'init',x:W/2,y:H/2,detail:''},
+    lastEvent:{id:0,type:'init',x:s.mode==='cross'?450:W/2,y:s.mode==='cross'?450:H/2,detail:''},
     bot:s.mode==='bot'?{aimX:W/2,aimY:132,thinkAt:0,iteration:0,seenHit:0,recoverUntil:0}:null,
-    paddles:startingPaddles(s.mode),puck:{x:W/2,y:H/2,vx:0,vy:0}
+    paddles:startingPaddles(s.mode),puck:s.mode==='cross'?{x:450,y:450,vx:0,vy:0}:{x:W/2,y:H/2,vx:0,vy:0}
   };
 }
 export function resetPaddles(room) {
@@ -82,6 +84,7 @@ export function resetPaddles(room) {
   room.paddles=replacements;delete room.geometry;
 }
 export function boundsForPaddle(room, i) {
+  if(room.settings.mode==='cross')return crossBounds(i,paddleRadius(room,i));
   const nTeam=teamSize(room);
   const side=nTeam > 1 ? (i<nTeam?0:1) : i;
   const r=paddleRadius(room,i);
@@ -93,6 +96,7 @@ export function boundsForPaddle(room, i) {
   return {minX,maxX,minY:side===0?H/2+r+5:r+19,maxY:side===0?H-r-19:H/2-r-5};
 }
 export function serve(room, toward = Math.random() < .5 ? 0 : 1) {
+  if(room.settings.mode==='cross'){crossServe(room,toward);return;}
   const angle = (Math.random()-.5)*.68;
   const sign = toward === 0 ? 1 : -1;
   room.puck = { x: W/2, y: H/2, vx: Math.sin(angle)*460, vy: sign*Math.cos(angle)*460 };
@@ -409,6 +413,7 @@ function updateGeometry(room,dt){
  * This avoids both tunneling and double-integration after a paddle strike.
  */
 export function stepPuck(room,dt,{growRadii=true}={}) {
+  if(room.settings.mode==='cross')return stepCrossPuck(room,dt);
   if(!Number.isFinite(dt)||dt<=0)return null;
   if(growRadii)updateGeometry(room,dt);
   const puck=room.puck,r=puckRadius(room);
@@ -542,7 +547,7 @@ export function recenterPuck(room,now=Date.now()) {
   room.lastTouch=null;
   room.paddles.forEach(p=>{p.contactLocked=false;p.contactNX=0;p.contactNY=0;});
   if(room.bot){room.bot.recoverUntil=0;room.bot.thinkAt=0;}
-  markEvent(room,'reset',W/2,H/2,'manual');
+  markEvent(room,'reset',room.settings.mode==='cross'?450:W/2,room.settings.mode==='cross'?450:H/2,'manual');
 }
 export function spawnPower(room, now=Date.now()){
   if(!room.settings.powers||room.power||room.effect||now<room.nextPowerAt)return;
@@ -641,6 +646,7 @@ function insideRink(p, r) { return [p.x, p.y, p.vx, p.vy].every(Number.isFinite)
 
 /** stepPuck() + bounded lag compensation. Returns the scoring side or null. */
 export function stepPuckCompensated(room, dt, opts = {}) {
+  if(room.settings.mode==='cross')return stepCrossPuck(room,dt);
   if(!Number.isFinite(dt)||dt<=0)return null;
   const s = lagState(room),nonWallBefore=s.nonWall;
   const scorer = stepPuck(room, dt);
