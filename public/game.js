@@ -1,6 +1,7 @@
 // Versioned import: a cached 5.0.2 motion.js can never be mixed with this game.js.
 import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.5.0-cross-beta.1';
-import {directPeer} from './peer-direct.js?v=5.4.0-direct.1';
+import {directPeer} from './peer-direct.js?v=5.5.2-local.1';
+import {sampleLocalPuck} from './local-motion.js?v=5.5.2-local.1';
 import {qrSvg} from './qr-local.js?v=5.4.0-direct.1';
 import {crossToView,crossViewBounds,crossVelocityToView} from './engine/cross.js?v=5.5.0-cross.1';
 import {drawCrossBoard} from './cross-view.js?v=5.5.0-cross.1';
@@ -303,7 +304,7 @@ function createFromInput() {
 }
 async function startLocalBot(settings,name){
   // The exact same physics engine runs inside this PWA, not in Cloudflare.
-  const engine=await import('./local-bot.js?v=5.3.0-choices.1');
+  const engine=await import('./local-bot.js?v=5.5.2-local.1');
   const session=engine.createLocalBot(settings,name);
   const previous=app.ws;app.ws=null;previous?.close();
   app.localBot={engine,session,kind:'bot'};app.seat=0;
@@ -321,7 +322,7 @@ function joinFromInput() {
   queue({ type:'join', code, team:ui.joinTeam.value, token:storage.getItem('ah_token_' + code), name:nameFor('Jugador 2') });
 }
 async function startSameScreen(settings,name){
-  const engine=await import('./local-duel.js?v=5.4.0-direct.1');
+  const engine=await import('./local-duel.js?v=5.5.2-local.1');
   const session=engine.createLocalDuel(settings,name,'Jugador Rosa');
   const old=app.ws;app.ws=null;old?.close();
   app.localBot={engine,session,kind:'screen'};
@@ -376,7 +377,7 @@ function directLink(role){
   app.p2p={link,role};return link;
 }
 async function startDirectHost(){
-  const engine=await import('./local-duel.js?v=5.4.0-direct.1');
+  const engine=await import('./local-duel.js?v=5.5.2-local.1');
   const session=engine.createLocalDuel(app.directHostSettings||directSettings(),app.name||'Azul','Rosa');
   app.localBot={engine,session,kind:'direct-host'};app.seat=0;
   app.input={x:W/2,y:H-127};
@@ -437,7 +438,8 @@ ui.directGuest.addEventListener('click',async()=>{
 });
 async function finishDirectAnswer(code){
   if(app.p2p?.role!=='host'){directStatus('Primero crea una invitación en este teléfono anfitrión.');return;}
-  try{await app.p2p.link.complete(code);directStatus('Respuesta recibida. Estableciendo conexión directa…');}
+  try{await app.p2p.link.complete(code);if(app.p2p?.link?.connected)directStatus('✓ Conectados · listo para jugar');
+    else directStatus('Respuesta recibida. Buscando ruta local entre los dos teléfonos (máximo 25 s)…');}
   catch(err){directStatus('No se pudo completar: '+err.message);}
 }
 ui.directComplete.addEventListener('click',()=>finishDirectAnswer(ui.directRemote.value.trim()));
@@ -936,13 +938,13 @@ async function refreshOfflineReadiness(){
   if(!('serviceWorker' in navigator)||!('caches' in window)){
     tag.dataset.ready='false';tag.textContent='Para abrir el juego sin Internet, usa Safari/Chrome actualizado e instala la app.';return;
   }
-  const key='hockey-duo-v5-5-1-offline-hotfix';
+  const key='hockey-duo-v5-5-2-local-smooth';
   try{
     if(!navigator.serviceWorker.controller)throw Error('La página no está controlada por la app guardada');
     if(!await caches.has(key))throw Error('La descarga aún no termina');
     const cache=await caches.open(key);
     const paths=['/','/game.js?v=5.5.0-cross-beta.1','/styles.css?v=5.5.0-cross-beta.1',
-      '/local-duel.js?v=5.4.0-direct.1','/local-bot.js?v=5.3.0-choices.1',
+      '/local-duel.js?v=5.5.2-local.1','/local-bot.js?v=5.5.2-local.1','/local-motion.js?v=5.5.2-local.1','/peer-direct.js?v=5.5.2-local.1',
       '/motion.js?v=5.5.0-cross-beta.1','/engine/physics.js','/engine/geometry.js','/engine/cross.js?v=5.5.0-cross.1','/cross-view.js?v=5.5.0-cross.1'];
     const matches=await Promise.all(paths.map(path=>cache.match(path)));
     if(matches.some(m=>!m))throw Error('Faltan archivos locales');
@@ -1359,11 +1361,14 @@ function draw(t){
     return;
   }
   requestAnimationFrame(draw);
-  // Frame pacing: ~60 FPS on 60/90/120 Hz screens. Simple 15ms skipping
-  // produced 45 FPS on 90Hz phones; an accumulator avoids that regression.
-  if(!app.nextPaintAt)app.nextPaintAt=t;
-  if(t+.75<app.nextPaintAt)return;
-  app.nextPaintAt=Math.max(app.nextPaintAt+1000/60,t+1000/120);
+  // Local play: draw at the device refresh rate, with deterministic 60Hz physics.
+  // Online keeps its existing ~60FPS frame budget and interpolation unchanged.
+  if(app.localBot)app.nextPaintAt=0;
+  else {
+    if(!app.nextPaintAt)app.nextPaintAt=t;
+    if(t+.75<app.nextPaintAt)return;
+    app.nextPaintAt=Math.max(app.nextPaintAt+1000/60,t+1000/120);
+  }
   const dt=Math.min(.04,Math.max(.001,(t-app.lastFrame)/1000));app.lastFrame=t;
   if(app.localBot){
     const {session,engine,kind}=app.localBot;
@@ -1392,7 +1397,7 @@ function draw(t){
   // Mantiene la entrada fluida sin saturar el servidor con cada evento táctil.
   if(app.inputMoved&&isPlaying(s)&&(!app.lastSent||app.lastSent.x!==app.input.x||app.lastSent.y!==app.input.y))sendMove(app.input);
   app.renderTime=app.localBot?null:playoutTime(app.clock,t);
-  const puckTarget=app.localBot?{...orient(s.puck),vx:s.puck.vx,vy:s.puck.vy,r:s.puck.r||PUCK_R,at:s.serverNow,exact:true}:
+  const puckTarget=app.localBot?{...orient(sampleLocalPuck(app.localBot.session,s.puck,s.phase)),vx:s.puck.vx,vy:s.puck.vy,r:s.puck.r||PUCK_R,at:s.serverNow,exact:true}:
     samplePuck(t,s.phase)||{...orient(s.puck),vx:0,vy:0,r:s.puck.r||PUCK_R};
   app.puckDraw=app.localBot?{...puckTarget}:['playing','overtime'].includes(s.phase)?softenPuckPosition(app.puckDraw,puckTarget,dt):{...puckTarget};
   app.renderPhase=s.phase;

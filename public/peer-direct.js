@@ -50,13 +50,26 @@ async function iceDone(peer,timeout=12000){
     timeoutId=setTimeout(finish,timeout);
   });
 }
-export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStatus=()=>{}}={}){
+export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStatus=()=>{},connectionTimeoutMs=25000}={}){
   if(!globalThis.RTCPeerConnection)throw Error('Este navegador no permite WebRTC. Prueba Safari o Chrome actualizado.');
   const peer=new RTCPeerConnection({iceServers:[],iceTransportPolicy:'all'});
-  let channel=null,closed=false,completing=null,answerApplied=null;
+  let channel=null,closed=false,completing=null,answerApplied=null,watchTimer=null,signalingRole=null;
+  const WIFI_ERROR='No se pudo establecer una ruta Wi-Fi directa entre los teléfonos. Ambos deben estar en la misma red Wi-Fi privada, sin VPN, Private Relay ni aislamiento de clientes. Si la red bloquea WebRTC, usa LAN con computadora.';
+  function clearWatch(){if(watchTimer!==null){clearTimeout(watchTimer);watchTimer=null;}}
+  function failRoute(){
+    if(closed||channel?.readyState==='open')return;
+    clearWatch();closed=true;channel?.close();peer.close();
+    onStatus('⚠️ '+WIFI_ERROR);
+  }
+  function watchConnection(){
+    if(closed||channel?.readyState==='open'||watchTimer!==null)return;
+    // Guest has to transfer the QR manually: allow enough time for that step.
+    const maxWait=signalingRole==='guest'?180000:connectionTimeoutMs;
+    watchTimer=setTimeout(()=>{watchTimer=null;failRoute();},maxWait);
+  }
   function attach(c){
     channel=c;
-    c.onopen=()=>{onStatus('Conectado directamente · sin servidor');onOpen();};
+    c.onopen=()=>{clearWatch();onStatus('Conectado directamente · sin servidor');onOpen();};
     c.onclose=()=>{if(!closed){onStatus('Conexión local cerrada');onClose();}};
     c.onerror=()=>onStatus('Problema en el canal local');
     c.onmessage=ev=>{
@@ -66,7 +79,13 @@ export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStat
   }
   peer.onconnectionstatechange=()=>{
     const state=peer.connectionState;
-    if(state==='failed'||state==='disconnected'){onStatus('No se conectaron. Comprueba el mismo Wi-Fi y reinicia el emparejamiento.');onClose();}
+    if(state==='failed')failRoute();
+    else if(state==='disconnected'&&!closed){onStatus('Enlace Wi-Fi interrumpido. Comprueba la red local.');onClose();}
+    // Keep the watchdog active until DataChannel.onopen actually fires.
+  };
+  peer.oniceconnectionstatechange=()=>{
+    if(peer.iceConnectionState==='failed')failRoute();
+    else if(peer.iceConnectionState==='checking'){watchConnection();onStatus('Verificando conexión Wi-Fi local entre ambos teléfonos…');}
   };
   peer.ondatachannel=e=>attach(e.channel);
   return {
@@ -79,6 +98,7 @@ export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStat
       channel.send(data);return true;
     },
     async offer(){
+      signalingRole='host';
       const ch=peer.createDataChannel('hockey',{ordered:true});attach(ch);
       await peer.setLocalDescription(await peer.createOffer());
       await iceDone(peer);
@@ -87,6 +107,7 @@ export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStat
       return encodeSignal(peer.localDescription);
     },
     async answer(offerText){
+      signalingRole='guest';
       const offer=await decodeSignal(offerText);
       if(offer.type!=='offer')throw Error('Necesitas la invitación del anfitrión.');
       await peer.setRemoteDescription(offer);
@@ -97,6 +118,7 @@ export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStat
       return encodeSignal(peer.localDescription);
     },
     async complete(answerText){
+      if(closed)throw Error('Este intento de conexión ya terminó. Crea una nueva invitación.');
       const answer=await decodeSignal(answerText);
       if(answer.type!=='answer')throw Error('Necesitas una respuesta, no otra invitación.');
       if(answerApplied){
@@ -112,10 +134,11 @@ export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStat
       completing=(async()=>{
         await peer.setRemoteDescription(answer);
         answerApplied=answer.sdp;
+        watchConnection();
         onStatus('Conectando directamente los dos teléfonos…');
       })();
       try{await completing;}finally{completing=null;}
     },
-    close(){closed=true;channel?.close();peer.close();}
+    close(){closed=true;clearWatch();channel?.close();peer.close();}
   };
 }

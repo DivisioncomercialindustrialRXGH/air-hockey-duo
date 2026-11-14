@@ -2,12 +2,12 @@
  * Cache ONLY the essential engine and UI. Online rooms still need Cloudflare.
  * Local LAN (with PC) is served by its own local Wi-Fi origin.
  */
-const CACHE='hockey-duo-v5-5-1-offline-hotfix';
+const CACHE='hockey-duo-v5-5-2-local-smooth';
 const CORE=[
-  '/', '/styles.css?v=5.5.1-offline-hotfix.1', '/game.js?v=5.5.1-offline-hotfix.1',
-  '/motion.js?v=5.5.0-cross-beta.1', '/local-bot.js?v=5.3.0-choices.1',
-  '/local-duel.js?v=5.4.0-direct.1', '/peer-direct.js?v=5.4.0-direct.1',
-  '/qr-local.js?v=5.4.0-direct.1', '/engine/physics.js',
+  '/', '/styles.css?v=5.5.1-offline-hotfix.1', '/game.js?v=5.5.2-local.1',
+  '/motion.js?v=5.5.0-cross-beta.1', '/local-bot.js?v=5.5.2-local.1',
+  '/local-duel.js?v=5.5.2-local.1', '/peer-direct.js?v=5.5.2-local.1',
+  '/qr-local.js?v=5.4.0-direct.1', '/local-motion.js?v=5.5.2-local.1', '/engine/physics.js',
   '/engine/geometry.js', '/engine/cross.js?v=5.5.0-cross.1', '/cross-view.js?v=5.5.0-cross.1'
 ];
 const OPTIONAL=['/manifest.webmanifest','/favicon.svg','/icon-192.png','/icon-512.png','/icon-180.png','/arena-lab.html'];

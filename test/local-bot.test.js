@@ -62,7 +62,7 @@ test('local game never sends a websocket movement or requires Cloudflare for bot
 
 test('standalone installation caches the entire local physics engine and arena preview',()=>{
   const worker=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');
-  for(const file of ['/engine/physics.js','/engine/geometry.js','/local-bot.js?v=5.3.0-choices.1','/arena-lab.html'])
+  for(const file of ['/engine/physics.js','/engine/geometry.js','/local-bot.js?v=5.5.2-local.1','/arena-lab.html'])
     assert.ok(worker.includes(file),file);
   const html=readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
   assert.match(html,/arena-lab\.html/);

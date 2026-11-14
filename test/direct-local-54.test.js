@@ -61,7 +61,7 @@ test('UI offers direct, same-screen and online without removing LAN modes',()=>{
  const sw=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');
  for(const x of ['choose-direct','choose-screen','direct-setup','direct-host','direct-guest','direct-remote','direct-complete'])assert.ok(html.includes(`id="${x}"`));
  for(const x of ['startSameScreen','startDirectHost','setDuelInput','moveUpperInput','app.topTouchId','directPeer'])assert.ok(js.includes(x));
- for(const file of ['/local-duel.js?v=5.4.0-direct.1','/peer-direct.js?v=5.4.0-direct.1','/qr-local.js?v=5.4.0-direct.1'])assert.ok(sw.includes(file));
+ for(const file of ['/local-duel.js?v=5.5.2-local.1','/peer-direct.js?v=5.5.2-local.1','/qr-local.js?v=5.4.0-direct.1'])assert.ok(sw.includes(file));
 });
 
 test('WebRTC manual invite-answer exchanges state through a simulated direct DataChannel',async()=>{

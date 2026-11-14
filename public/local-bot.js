@@ -43,6 +43,10 @@ export function tickLocalBot(session, localTime, input) {
   const count = Math.min(6, Math.floor((session.accumulator + 1e-5)/QUANTUM));
   session.accumulator -= count * QUANTUM;
   for (let i=0; i<count; i++) {
+    // Fixed simulation sample for visual interpolation; never alters physics.
+    session.visualPuckPrevious={...session.room.puck};
+    const eventBefore=session.room.lastEvent?.id,phaseBefore=session.room.phase;
+    session.visualPuckSafe=false;
     session.now += QUANTUM;
     const t = session.now;
     if (room.phase === 'goal' && t >= room.phaseEnd) countdown(room, 1-room.goalBy);
@@ -71,6 +75,8 @@ export function tickLocalBot(session, localTime, input) {
         const scorer = stepPuck(room,1/TICK_RATE);
         if (scorer !== null) awardGoal(room,scorer,t);
         else updatePower(room,t);
+        session.visualPuckSafe=scorer===null&&room.lastEvent?.id===eventBefore&&
+          room.phase===phaseBefore&&['playing','overtime'].includes(room.phase);
       }
     }
   }

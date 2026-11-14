@@ -1,6 +1,6 @@
 {
   "name": "air-hockey-duo-cloudflare",
-  "version": "5.5.1-offline-hotfix",
+  "version": "5.5.2-local-smooth",
   "private": true,
   "description": "Air Hockey DUO multijugador, gratis en Cloudflare Workers y Durable Objects",
   "type": "module",
