@@ -1,5 +1,5 @@
-const CACHE='hockey-duo-v5-3-online-lan';
-const CORE=['/','/index.html','/styles.css?v=5.3.0-choices.1','/game.js?v=5.3.0-choices.1','/motion.js?v=5.3.0-choices.1','/local-bot.js?v=5.3.0-choices.1','/engine/physics.js','/engine/geometry.js','/arena-lab.html','/manifest.webmanifest','/favicon.svg','/icon-192.png'];
+const CACHE='hockey-duo-v5-4-direct-same-screen';
+const CORE=['/','/index.html','/styles.css?v=5.4.0-direct.1','/game.js?v=5.4.0-direct.1','/motion.js?v=5.4.0-direct.1','/local-bot.js?v=5.3.0-choices.1','/engine/physics.js','/engine/geometry.js','/local-duel.js?v=5.4.0-direct.1','/peer-direct.js?v=5.4.0-direct.1','/qr-local.js?v=5.4.0-direct.1','/arena-lab.html','/manifest.webmanifest','/favicon.svg','/icon-192.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting()));
 });

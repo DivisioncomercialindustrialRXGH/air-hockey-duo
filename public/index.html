@@ -12,7 +12,7 @@
   <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/styles.css?v=5.3.0-choices.1" />
+  <link rel="stylesheet" href="/styles.css?v=5.4.0-direct.1" />
 </head>
 <body>
   <div class="ambient ambient-one"></div>
@@ -47,10 +47,38 @@
             <span class="connection-option-title">🌍 ONLINE</span>
             <span class="connection-option-sub">A distancia · Internet</span>
           </button>
-          <button id="choose-lan" type="button" class="connection-option" aria-pressed="false">
-            <span class="connection-option-title">📡 WI-FI LOCAL</span>
-            <span class="connection-option-sub">Juntos · sin Internet</span>
+          <button id="choose-direct" type="button" class="connection-option" aria-pressed="false">
+            <span class="connection-option-title">📱 DOS CELULARES</span>
+            <span class="connection-option-sub">Directo · sin PC ni Internet</span>
           </button>
+          <button id="choose-screen" type="button" class="connection-option" aria-pressed="false">
+            <span class="connection-option-title">👆 UNA PANTALLA</span>
+            <span class="connection-option-sub">Dos personas · dos dedos</span>
+          </button>
+          <button id="choose-lan" type="button" class="connection-option" aria-pressed="false">
+            <span class="connection-option-title">📡 LAN CON PC</span>
+            <span class="connection-option-sub">Hasta ocho · Wi-Fi local</span>
+          </button>
+        </div>
+        <div id="direct-setup" class="direct-setup hidden">
+          <strong>Dos celulares · conexión directa</strong>
+          <p>Conecta ambos teléfonos al mismo Wi-Fi y abre la app instalada en cada uno. Uno crea una invitación y el otro genera la respuesta. Ninguna computadora es necesaria.</p>
+          <p>Primero debes abrir la app con Internet una vez en ambos celulares para conservarla sin conexión. En iPhone usa la cámara normal para leer el QR; si no funciona, comparte el texto con AirDrop u otro medio local.</p>
+          <div class="direct-actions">
+            <button id="direct-host" type="button" class="secondary-button">1. CREAR INVITACIÓN</button>
+            <button id="direct-guest" type="button" class="secondary-button">2. RESPONDER INVITACIÓN</button>
+          </div>
+          <label class="input-label" for="direct-remote">INVITACIÓN O RESPUESTA DEL OTRO CELULAR</label>
+          <textarea id="direct-remote" rows="3" class="direct-text" placeholder="Pega aquí el código que te entregue el otro teléfono" spellcheck="false"></textarea>
+          <button id="direct-complete" type="button" class="secondary-button">3. CONECTAR LA RESPUESTA</button>
+          <div id="direct-output" class="direct-output hidden">
+            <strong id="direct-label">TU CÓDIGO</strong>
+            <textarea id="direct-code" rows="3" class="direct-text" readonly aria-label="Código de conexión"></textarea>
+            <button id="direct-copy" type="button" class="secondary-button">COPIAR / COMPARTIR CÓDIGO</button>
+            <div id="direct-qr" class="direct-qr" aria-label="Código QR de emparejamiento"></div>
+            <p>Escanea el QR con la cámara normal del otro teléfono. Si el sistema no abre la app, utiliza el texto con Copiar/Compartir (AirDrop, Quick Share u otro medio local).</p>
+          </div>
+          <p id="direct-status" class="direct-status" role="status" aria-live="polite">No se usa servidor de emparejamiento. La conexión directa depende de que los navegadores puedan encontrarse en esta Wi-Fi.</p>
         </div>
         <div id="lan-setup" class="lan-setup hidden">
           <strong>Dos o más celulares conectados al mismo Wi-Fi</strong>
@@ -114,7 +142,7 @@
         <div class="join-row"><input id="room-code" class="text-input code-input" type="text" maxlength="6" placeholder="CÓDIGO" aria-label="Código de sala" autocapitalize="characters" spellcheck="false" /><button id="join-btn" class="secondary-button" type="button">UNIRME <span>→</span></button></div>
         <div id="home-error" class="home-error" role="status"></div>
       </section>
-      <div class="home-note"><span class="lightning">⚡</span> Online a distancia · Wi-Fi local · Bot sin conexión</div>
+      <div class="home-note"><span class="lightning">⚡</span> Online · Dos celulares sin PC · Pantalla compartida · Bot sin conexión</div>
       <button id="install-btn" class="install-button" type="button">⬇ Instalar como app en mi celular</button>
       <div id="install-help" class="install-help hidden" role="status"></div>
     </main>
@@ -184,6 +212,6 @@
     </main>
     <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
   </div>
-  <script type="module" src="/game.js?v=5.3.0-choices.1"></script>
+  <script type="module" src="/game.js?v=5.4.0-direct.1"></script>
 </body>
 </html>

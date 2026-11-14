@@ -1,5 +1,7 @@
 // Versioned import: a cached 5.0.2 motion.js can never be mixed with this game.js.
-import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.3.0-choices.1';
+import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.4.0-direct.1';
+import {directPeer} from './peer-direct.js?v=5.4.0-direct.1';
+import {qrSvg} from './qr-local.js?v=5.4.0-direct.1';
 const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
 // Local LAN host: both telephones load this page from the computer on the Wi-Fi.
 const LAN_HOST = /^(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(location.hostname) && location.protocol==='http:';
@@ -33,7 +35,12 @@ const ui = {
   chatToggle: $('#chat-toggle'), chatPanel: $('#chat-panel'), chatClose: $('#chat-close'),
   chatMessages: $('#chat-messages'), chatForm: $('#chat-form'), chatInput: $('#chat-input'),
   voiceButton: $('#voice-btn'),
-  chooseOnline: $('#choose-online'), chooseLan: $('#choose-lan'), lanSetup: $('#lan-setup'),
+  chooseOnline: $('#choose-online'), chooseLan: $('#choose-lan'), chooseDirect: $('#choose-direct'), chooseScreen: $('#choose-screen'),
+  directSetup: $('#direct-setup'), directHost: $('#direct-host'), directGuest: $('#direct-guest'),
+  directRemote: $('#direct-remote'), directComplete: $('#direct-complete'),directOutput: $('#direct-output'),
+  directCode: $('#direct-code'),directCopy: $('#direct-copy'),directQr: $('#direct-qr'),
+  directLabel: $('#direct-label'),directStatus: $('#direct-status'),
+  lanSetup: $('#lan-setup'),
   lanAddress: $('#lan-address'), openLan: $('#open-lan'), lanEntry: $('#lan-remote-entry'), lanMessage: $('#lan-setup-message'),
   tournamentMode: $('#tournament-mode')
 };
@@ -49,6 +56,7 @@ const app = {
   lastEventSeen: 0, lastLocalHit: 0, speculativeUntil: 0, inputV: {x:0,y:0}, prevInputAt: 0,
   particles: [], impacts: [], prevPuckR: PUCK_R, installPrompt: null, lastPower: null,
   musicVolume:Math.max(0,Math.min(1,Number(storage.getItem('ah_music_volume')??25)/100)),
+  p2p:null, directHostSettings:null, inputTop:{x:W/2,y:127}, topTouchId:null, directSendAt:0,
   fxVolume:Math.max(0,Math.min(1,Number(storage.getItem('ah_fx_volume')??90)/100)),
   musicRequested:false,musicPausedByUser:false,rankAutoOpened:false,voiceEnabled:false,localStream:null,pcs:new Map(),voiceReady:[]
 };
@@ -57,6 +65,14 @@ function selectTransport(next){
   selectedTransport=next;
   ui.chooseOnline.setAttribute('aria-pressed',String(next==='online'));
   ui.chooseLan.setAttribute('aria-pressed',String(next==='lan'));
+  ui.chooseDirect.setAttribute('aria-pressed',String(next==='direct'));
+  ui.chooseScreen.setAttribute('aria-pressed',String(next==='screen'));
+  ui.directSetup.classList.toggle('hidden',next!=='direct');
+  document.body.dataset.transport=next;
+  if(['screen','direct'].includes(next)){
+    if(app.ws){const previous=app.ws;app.ws=null;previous.close();}
+    setConnection(true);
+  } else if(!app.ws && !app.localBot)connect();
   ui.lanSetup.classList.toggle('hidden',next!=='lan');
   document.querySelector('#lan-mode-banner').classList.toggle('hidden',!LAN_HOST);
   ui.lanEntry.classList.toggle('hidden',LAN_HOST);
@@ -75,6 +91,8 @@ ui.chooseOnline.addEventListener('click',()=>{
   selectTransport('online');
 });
 ui.chooseLan.addEventListener('click',()=>selectTransport('lan'));
+ui.chooseScreen.addEventListener('click',()=>selectTransport('screen'));
+ui.chooseDirect.addEventListener('click',()=>selectTransport('direct'));
 function parseLanAddress(value){
   // Intentionally limited to private IPv4 LAN addresses, not arbitrary user-supplied URLs.
   let match=value.trim().match(/^(?:(?:https?:\/\/)?)(localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::(\d{2,5}))?\/?$/i);
@@ -93,12 +111,15 @@ selectTransport(selectedTransport);
 if(roomFromUrl && /^[A-Z0-9]{6}$/.test(roomFromUrl)){ui.roomCode.value=roomFromUrl;}
 function updateModeFields(){
   ui.tournamentOption.classList.toggle('hidden',ui.mode.value!=='tournament');
-  ui.tournamentMode.disabled=LAN_HOST;
+  const isDirect=selectedTransport==='direct',isScreen=selectedTransport==='screen';
+  ui.tournamentMode.disabled=LAN_HOST||isDirect||isScreen;
+  if((isDirect||isScreen)&&ui.mode.value!=='duel')ui.mode.value='duel';
+  ui.mode.disabled=isDirect||isScreen;
   if(LAN_HOST&&ui.mode.value==='tournament')ui.mode.value='duel';
   ui.botDifficultyOption.classList.toggle('hidden',ui.mode.value!=='bot');
-  ui.create.disabled=selectedTransport==='lan'&&!LAN_HOST&&ui.mode.value!=='bot';
-  ui.join.disabled=selectedTransport==='lan'&&!LAN_HOST;
-  ui.create.innerHTML=LAN_HOST && ui.mode.value!=='bot'?'<span class="button-icon">📡</span> CREAR SALA WI-FI <span class="button-arrow">→</span>':ui.mode.value==='bot'?'<span class="button-icon">🤖</span> JUGAR CONTRA EL BOT <span class="button-arrow">→</span>':'<span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span>'; 
+  ui.create.disabled=isDirect||(selectedTransport==='lan'&&!LAN_HOST&&ui.mode.value!=='bot');
+  ui.join.disabled=isDirect||isScreen||(selectedTransport==='lan'&&!LAN_HOST);
+  ui.create.innerHTML=isScreen?'<span class="button-icon">👆</span> DOS JUGADORES · INICIAR <span class="button-arrow">→</span>':LAN_HOST && ui.mode.value!=='bot'?'<span class="button-icon">📡</span> CREAR SALA WI-FI <span class="button-arrow">→</span>':ui.mode.value==='bot'?'<span class="button-icon">🤖</span> JUGAR CONTRA EL BOT <span class="button-arrow">→</span>':'<span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span>'; 
   ui.createTeamOption.classList.toggle('hidden',!['duo','teams'].includes(ui.mode.value));
 }
 ui.mode.addEventListener('change',updateModeFields);
@@ -116,20 +137,29 @@ function setConnection(online) {
   app.online = online;
   ui.connection.classList.toggle('online', online);
   ui.connection.classList.toggle('offline', !online);
-  ui.connectionText.textContent = app.localBot ? 'LOCAL · SIN PING' : LAN_HOST ? (online?'WI-FI LOCAL':'LAN SIN CONEXIÓN') : online ? 'EN LÍNEA' : 'SIN CONEXIÓN';
+  ui.connectionText.textContent = app.localBot?.kind==='screen' ? 'DOS JUGADORES · OFFLINE'
+    :app.localBot ? 'LOCAL · SIN PING' :app.p2p?.link?.connected ? 'DOS CELULARES · DIRECTO'
+    :selectedTransport==='direct'?'ENLACE DIRECTO · SIN SERVIDOR'
+    :selectedTransport==='screen'?'PANTALLA COMPARTIDA'
+    :LAN_HOST ? (online?'WI-FI LOCAL':'LAN SIN CONEXIÓN') : online ? 'EN LÍNEA' : 'SIN CONEXIÓN';
 }
 function send(data) {
   if(app.localBot){
-    const {session,engine}=app.localBot;
+    const {session,engine,kind}=app.localBot;
+    const duet=kind==='screen'||kind==='direct-host';
+    const rematch=duet?engine.rematchLocalDuel:engine.rematchLocalBot;
+    const snapshot=duet?engine.snapshotLocalDuel:engine.snapshotLocalBot;
+    const reset=duet?engine.resetLocalDuel:engine.resetLocalBot;
     if(data.type==='move')return;
-    if(data.type==='rematch' && engine.rematchLocalBot(session))handleMessage(engine.snapshotLocalBot(session));
+    if(data.type==='rematch'&&rematch(session))handleMessage(snapshot(session));
     if(data.type==='reset-puck'){
-      const error=engine.resetLocalBot(session);
+      const error=reset(session);
       if(error)handleMessage({type:'reset-rejected',message:error});
-      else handleMessage(engine.snapshotLocalBot(session));
+      else handleMessage(snapshot(session));
     }
     return;
   }
+  if(app.p2p?.link?.connected){app.p2p.link.send(data);return;}
   if(app.ws?.readyState===WebSocket.OPEN)app.ws.send(JSON.stringify(data));
 }
 // 5.0.3: every paddle move says WHICH moment of the disc the player was looking
@@ -137,7 +167,7 @@ function send(data) {
 // the client never decides collisions or goals.
 function sendMove(pos){
   if(app.localBot)return true;
-  if(!app.online||app.ws?.bufferedAmount>4096)return false;
+  if(!app.online||(app.p2p?.link?.connected?app.p2p.link.bufferedAmount>4096:app.ws?.bufferedAmount>4096))return false;
   const stamp=performance.now();
   if(stamp-app.sendAt<16)return false;
   const msg={type:'move',x:pos.x,y:pos.y,seq:(app.inputSeq||0)+1};
@@ -155,7 +185,7 @@ function nameFor(defaultName) {
   return name;
 }
 function connect() {
-  if(app.localBot)return;
+  if(app.localBot||app.p2p||selectedTransport==='direct'||selectedTransport==='screen')return;
   if (app.ws && [WebSocket.OPEN,WebSocket.CONNECTING].includes(app.ws.readyState)) return;
   const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   app.ws = socket;
@@ -205,6 +235,12 @@ function showError(msg) {
 function createFromInput() {
   unlockAudio();ui.error.textContent='';app.desiredJoin=null;
   const name=nameFor('Jugador 1');
+  if(selectedTransport==='screen'){
+    const settings={maxScore:Number(ui.target.value),timeLimit:Number(ui.time.value),
+      puckSize:document.querySelector('input[name="puck-size"]:checked')?.value||'M',powers:ui.powers.checked};
+    startSameScreen(settings,name).catch(err=>showError('No se pudo iniciar la pantalla compartida: '+err.message));return;
+  }
+  if(selectedTransport==='direct'){showError('Primero crea o responde la invitación de dos celulares.');return;}
   if(selectedTransport==='lan'&&!LAN_HOST&&ui.mode.value!=='bot'){showError('Abre primero la dirección LAN de tu computadora para crear una sala local.');return;}
   const settings={maxScore:Number(ui.target.value),timeLimit:Number(ui.time.value),
     puckSize:document.querySelector('input[name="puck-size"]:checked')?.value||'M',
@@ -224,7 +260,7 @@ async function startLocalBot(settings,name){
   const engine=await import('./local-bot.js?v=5.3.0-choices.1');
   const session=engine.createLocalBot(settings,name);
   const previous=app.ws;app.ws=null;previous?.close();
-  app.localBot={engine,session};app.seat=0;
+  app.localBot={engine,session,kind:'bot'};app.seat=0;
   handleMessage({type:'joined',code:'LOCAL',seat:0,token:'',settings:session.room.settings,chat:[]});
   const url=new URL(location.href);url.searchParams.delete('sala');history.replaceState(null,'',url);
   setConnection(true);
@@ -238,6 +274,170 @@ function joinFromInput() {
   if(selectedTransport==='lan'&&!LAN_HOST){showError('Abre primero la dirección LAN de tu computadora para entrar a esta sala.');return;}
   queue({ type:'join', code, team:ui.joinTeam.value, token:storage.getItem('ah_token_' + code), name:nameFor('Jugador 2') });
 }
+async function startSameScreen(settings,name){
+  const engine=await import('./local-duel.js?v=5.4.0-direct.1');
+  const session=engine.createLocalDuel(settings,name,'Jugador Rosa');
+  const old=app.ws;app.ws=null;old?.close();
+  app.localBot={engine,session,kind:'screen'};
+  app.seat=0;app.input={x:W/2,y:H-127};app.inputTop={x:W/2,y:127};
+  app.touchId=null;app.topTouchId=null;
+  handleMessage({type:'joined',code:'LOCAL',seat:0,token:'',settings:session.room.settings,chat:[]});
+  setConnection(true);
+  handleMessage(engine.snapshotLocalDuel(session));
+  ui.hint.textContent='Dos jugadores: azul abajo · rosa arriba · un dedo por jugador';
+}
+
+// --- Direct phone-to-phone LAN pairing: WebRTC DataChannel, no signaling server. ---
+function directStatus(message){ui.directStatus.textContent=message;}
+function directSettings(){return {mode:'duel',maxScore:Number(ui.target.value),timeLimit:Number(ui.time.value),
+  puckSize:document.querySelector('input[name="puck-size"]:checked')?.value||'M',powers:ui.powers.checked};}
+function cancelDirect(){
+  app.p2p?.link.close();app.p2p=null;
+  ui.directOutput.classList.add('hidden');
+}
+async function displayDirectSignal(signal,label,kind){
+  ui.directOutput.classList.remove('hidden');ui.directLabel.textContent=label;
+  ui.directCode.value=signal;ui.directQr.replaceChildren();
+  // QR uses the installed PWA shell and never contains a remote server URL.
+  try{
+    const url=new URL(location.href);url.search='';url.hash=kind+'='+encodeURIComponent(signal);
+    const svg=qrSvg(url.toString());
+    const blob=new Blob([svg],{type:'image/svg+xml'}),src=URL.createObjectURL(blob);
+    const img=new Image();img.alt='QR para transferir la '+(kind==='invite'?'invitación':'respuesta');
+    img.onload=()=>URL.revokeObjectURL(src);
+    img.src=src;ui.directQr.append(img);
+  }catch(err){
+    const fallback=document.createElement('span');fallback.textContent='El QR es demasiado grande: comparte el código de texto con AirDrop u otra opción local.';
+    ui.directQr.append(fallback);
+  }
+}
+function directLink(role){
+  cancelDirect();
+  const link=directPeer({
+    onStatus:directStatus,
+    onOpen:()=>{
+      setConnection(true);
+      if(role==='host')startDirectHost().then(()=>{if(app.p2p?.pendingJoin){const joining=app.p2p.pendingJoin;app.p2p.pendingJoin=null;handleDirectMessage('host',joining);}}).catch(e=>directStatus('Error iniciando partida: '+e.message));
+      else link.send({type:'join',name:nameFor('Jugador Rosa')});
+    },
+    onMessage:msg=>handleDirectMessage(role,msg),
+    onClose:()=>{
+      if(app.localBot?.kind==='direct-host')app.localBot=null;
+      if(app.state){app.state.phase='paused';app.state.pauseMessage='Se interrumpió el enlace directo';updateUI();}
+      directStatus('Desconectado · vuelve a crear una invitación');
+    }
+  });
+  app.p2p={link,role};return link;
+}
+async function startDirectHost(){
+  const engine=await import('./local-duel.js?v=5.4.0-direct.1');
+  const session=engine.createLocalDuel(app.directHostSettings||directSettings(),app.name||'Azul','Rosa');
+  app.localBot={engine,session,kind:'direct-host'};app.seat=0;
+  app.input={x:W/2,y:H-127};
+  handleMessage({type:'joined',code:'DIRECT',seat:0,token:'',settings:session.room.settings,chat:[]});
+  handleMessage(engine.snapshotLocalDuel(session));
+  ui.hint.textContent='⚡ Anfitrión local · sin Cloudflare';
+}
+function handleDirectMessage(role,msg){
+  if(!msg||typeof msg.type!=='string')return;
+  if(role==='host'){
+    const duel=app.localBot;
+    if(!duel||duel.kind!=='direct-host'){if(msg.type==='join'&&app.p2p)app.p2p.pendingJoin=msg;return;}
+    const {session,engine}=duel;
+    if(msg.type==='join'){
+      session.room.players[1].name=String(msg.name||'Jugador Rosa').trim().slice(0,20)||'Jugador Rosa';
+      app.p2p.link.send({type:'joined',code:'DIRECT',seat:1,token:'',settings:session.room.settings,chat:[]});
+      app.p2p.link.send(engine.snapshotLocalDuel(session));
+    }
+    if(msg.type==='move'&&Number.isFinite(msg.x)&&Number.isFinite(msg.y)&&Number.isSafeInteger(msg.seq)
+      &&msg.seq>(app.p2p?.lastMoveSeq||0)&&['countdown','playing','overtime'].includes(session.room.phase)){
+      // Inputs arrive in guest-oriented screen coordinates, rotated 180 degrees.
+      engine.setDuelInput(session,1,{x:W-msg.x,y:H-msg.y});
+      session.room.paddles[1].ack=msg.seq;
+      app.p2p.lastMoveSeq=msg.seq;
+    }
+    if(msg.type==='rematch'&&engine.rematchLocalDuel(session)){
+      app.p2p.link.send(engine.snapshotLocalDuel(session));
+    }
+    if(msg.type==='reset-puck'){
+      const error=engine.resetLocalDuel(session);
+      if(error)app.p2p.link.send({type:'reset-rejected',message:error});
+      else app.p2p.link.send(engine.snapshotLocalDuel(session));
+    }
+  }else{
+    if(msg.type==='joined'){
+      app.localBot=null;
+      handleMessage(msg);
+      setConnection(true);
+      ui.hint.textContent='⚡ Rival directo · sin Cloudflare';
+    }else if(msg.type==='state'&&app.room)handleMessage(msg);
+    else if(msg.type==='reset-rejected')handleMessage(msg);
+  }
+}
+ui.directHost.addEventListener('click',async()=>{
+  unlockAudio();selectTransport('direct');nameFor('Jugador Azul');
+  app.directHostSettings=directSettings();
+  directStatus('Creando invitación offline…');
+  try{const link=directLink('host');await displayDirectSignal(await link.offer(),'INVITACIÓN · entrega al otro celular','invite');}
+  catch(err){directStatus('No se pudo crear la invitación: '+err.message);cancelDirect();}
+});
+ui.directGuest.addEventListener('click',async()=>{
+  unlockAudio();selectTransport('direct');
+  const code=ui.directRemote.value.trim();
+  if(!code){directStatus('Escanea el QR del anfitrión o pega primero su invitación.');return;}
+  nameFor('Jugador Rosa');directStatus('Generando respuesta offline…');
+  try{const link=directLink('guest');await displayDirectSignal(await link.answer(code),'RESPUESTA · entrega al anfitrión','reply');}
+  catch(err){directStatus('No se pudo responder: '+err.message);cancelDirect();}
+});
+async function finishDirectAnswer(code){
+  if(app.p2p?.role!=='host'){directStatus('Primero crea una invitación en este teléfono anfitrión.');return;}
+  try{await app.p2p.link.complete(code);directStatus('Respuesta recibida. Estableciendo conexión directa…');}
+  catch(err){directStatus('No se pudo completar: '+err.message);}
+}
+ui.directComplete.addEventListener('click',()=>finishDirectAnswer(ui.directRemote.value.trim()));
+ui.directCopy.addEventListener('click',async()=>{
+  const code=ui.directCode.value;
+  try{
+    if(navigator.share){await navigator.share({title:'Air Hockey DUO · conexión directa',text:code});return;}
+    await navigator.clipboard.writeText(code);directStatus('Código copiado; compártelo mediante AirDrop/Quick Share.');
+  }catch{
+    ui.directCode.focus();ui.directCode.select();directStatus('Selecciona y comparte este código de invitación.');
+  }
+});
+// Scanning the QR with the phone's native Camera opens a local app URL.
+const signaling=typeof BroadcastChannel==='undefined'?null:new BroadcastChannel('air-hockey-duo-direct');
+if(signaling)signaling.onmessage=e=>{
+  if(e.data?.type==='reply'&&app.p2p?.role==='host')finishDirectAnswer(e.data.code);
+};
+function loadSignalFromUrl(){
+  const hash=new URLSearchParams(location.hash.replace(/^#/,''));
+  const invite=hash.get('invite'),reply=hash.get('reply');
+  if(!invite&&!reply)return;
+  history.replaceState(null,'',location.pathname+location.search);
+  selectTransport('direct');
+  if(invite){
+    ui.directRemote.value=invite;
+    directStatus('Invitación recibida por QR. Pulsa RESPONDER INVITACIÓN.');
+  }else if(reply){
+    ui.directRemote.value=reply;
+    signaling?.postMessage({type:'reply',code:reply});
+    try{localStorage.setItem('ah_direct_pending_reply',JSON.stringify({code:reply,at:Date.now()}));}catch{}
+    directStatus('Respuesta QR recibida. Regresa a la pantalla del anfitrión o pulsa CONECTAR LA RESPUESTA.');
+  }
+}
+loadSignalFromUrl();
+// Safari can suspend a tab while the Camera app scans the answer QR.
+// Keep the answer briefly so the original host can consume it on focus.
+window.addEventListener('focus',()=>{
+  if(app.p2p?.role!=='host')return;
+  try{
+    const pending=JSON.parse(localStorage.getItem('ah_direct_pending_reply')||'null');
+    if(pending?.code&&Date.now()-pending.at<120000){
+      localStorage.removeItem('ah_direct_pending_reply');finishDirectAnswer(pending.code);
+    }
+  }catch{}
+});
+
 ui.create.addEventListener('click', createFromInput);
 ui.join.addEventListener('click', joinFromInput);
 
@@ -256,19 +456,19 @@ function handleMessage(msg) {
   if (msg.type === 'joined') {
     app.room = msg.code; app.seat = msg.seat; app.token = msg.token;
     app.musicPausedByUser=false; app.musicRequested=false; ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[msg.settings?.mode]||'DUELO';
-    ui.voiceButton.disabled= LAN_HOST || !['duel','duo'].includes(msg.settings?.mode);
+    ui.voiceButton.disabled= LAN_HOST || !!app.localBot || !!app.p2p || !['duel','duo'].includes(msg.settings?.mode);
     ui.voiceButton.classList.toggle('hidden',msg.settings?.mode==='bot');
-    ui.chatToggle.classList.toggle('hidden',msg.settings?.mode==='bot');
-    ui.share.classList.toggle('hidden',msg.settings?.mode==='bot');
-    ui.copy.classList.toggle('hidden',msg.settings?.mode==='bot');
+    ui.chatToggle.classList.toggle('hidden',msg.settings?.mode==='bot'||!!app.localBot||!!app.p2p);
+    ui.share.classList.toggle('hidden',msg.settings?.mode==='bot'||!!app.localBot||!!app.p2p);
+    ui.copy.classList.toggle('hidden',msg.settings?.mode==='bot'||!!app.localBot||!!app.p2p);
     ui.voiceButton.title=ui.voiceButton.disabled?'Voz disponible en duelo y 2 vs 2':'Chat de voz experimental';
     ui.chatMessages.replaceChildren();
     (msg.chat||[]).forEach(addChat);
     app.state = null; app.oldPhase = null; app.lastGoalBy = null; app.trail = []; app.puckDraw = null; app.puckFrames = []; app.remotePaddleFrames=[]; app.clock={};app.inputSeq=0;app.lastSent=null;app.compHits=0; app.localPaddle = null;app.inputMoved=false;
     app.lastEventSeen=0;app.particles=[];app.speculativeUntil=0;app.prevInputAt=0;app.goalFx=null;app.rankSignature='';app.rankAutoOpened=false;closeControlPanels();
     app.input = { x: W/2, y: H - 127 }; app.inputMoved = false;
-    if(!app.localBot)storage.setItem('ah_token_' + msg.code, msg.token);
-    const url = new URL(location.href); url.searchParams.set('sala', msg.code); history.replaceState(null,'',url);
+    if(!app.localBot&&!app.p2p)storage.setItem('ah_token_' + msg.code, msg.token);
+    const url = new URL(location.href); if(app.localBot||app.p2p)url.searchParams.delete('sala');else url.searchParams.set('sala', msg.code); history.replaceState(null,'',url);
     ui.home.classList.add('hidden'); ui.game.classList.remove('hidden');
     ui.toolbarCode.textContent = msg.settings?.mode==='bot'?'SOLO':msg.code;
     ui.inviteCode.textContent = msg.code;
@@ -429,11 +629,11 @@ function updateUI(){
     ui.playersStatusText.textContent=`👥 ${count}/${s.players.length} conectados · 🔵 AZUL: ${blue} · 🩷 ROSADO: ${pink}`;
   }else ui.playersStatusText.textContent=`${formats[s.settings?.mode]||'PARTIDA'} · 👥 ${count}/${s.players.length} conectados${mine===-1?' · Esperando tu turno':''}`;
   updateRanking(s);
-  ui.hint.textContent=mine===-1?'👀 Estás viendo el partido. ¡Tu turno llegará!':s.settings?.mode==='duo'||s.settings?.mode==='teams'?'Desliza tu paleta dentro de tu carril · ¡A ganar en equipo!':'Desliza tu paleta · ¡Atrapa los poderes!';
+  ui.hint.textContent=isSharedScreen()?'👆 Azul controla abajo · Rosa controla arriba · dos dedos':mine===-1?'👀 Estás viendo el partido. ¡Tu turno llegará!':s.settings?.mode==='duo'||s.settings?.mode==='teams'?'Desliza tu paleta dentro de tu carril · ¡A ganar en equipo!':'Desliza tu paleta · ¡Atrapa los poderes!';
   const show=!['playing','overtime'].includes(s.phase)||mine===-1;
   ui.gameOverlay.classList.toggle('hidden',!show);
   ui.gameOverlay.classList.toggle('transparent',['countdown','goal','tournament_wait'].includes(s.phase));
-  ui.invite.classList.toggle('hidden',s.settings?.mode==='bot'||!['waiting','paused'].includes(s.phase));
+  ui.invite.classList.toggle('hidden',!!app.localBot||!!app.p2p||s.settings?.mode==='bot'||!['waiting','paused'].includes(s.phase));
   ui.rematch.classList.toggle('hidden',s.phase!=='gameover');
   const seconds=Math.max(1,Math.ceil((s.phaseEnd-(s.serverNow+performance.now()-app.lastStateAt))/1000));
   ui.overlayTitle.style.color='';
@@ -456,7 +656,7 @@ function updateUI(){
     ui.overlayIcon.textContent='🏆';ui.overlayTitle.textContent='¡CAMPEÓN!';ui.overlayDesc.textContent=`${champion} ganó el torneo. Revisa la clasificación final.`;
   }else if(s.phase==='gameover'){
     ui.overlayIcon.textContent=s.winner===view?'★':'⚡';
-    ui.overlayTitle.textContent=s.settings?.mode==='bot'?(s.winner===view?'¡LE GANASTE AL BOT!':'¡EL BOT GANÓ!'):(s.winner===view?'¡GANARON!':'¡BUEN DUELO!');
+    ui.overlayTitle.textContent=isSharedScreen()?(s.winner===0?'¡AZUL GANA!':'¡ROSA GANA!'):s.settings?.mode==='bot'?(s.winner===view?'¡LE GANASTE AL BOT!':'¡EL BOT GANÓ!'):(s.winner===view?'¡GANARON!':'¡BUEN DUELO!');
     ui.overlayTitle.style.color=s.winner===view?'#51e5ff':'#ff9cb6';
     ui.overlayDesc.textContent=s.winner===view?'¡Qué partidazo! ¿Otra ronda?':'¿Revancha?';
   }else if(mine===-1){
@@ -498,13 +698,15 @@ ui.rematch.addEventListener('click', () => { unlockAudio(); send({type:'rematch'
 ui.leave.addEventListener('click', () => {
   if (!confirm('¿Salir de la partida?')) return;
   app.localBot=null;
+  app.p2p?.link?.close();app.p2p=null;
+  app.topTouchId=null;
   const oldWs = app.ws;
   app.ws = null; app.room = null; app.token = null; app.state = null; app.desiredJoin = null;
   app.pending = null; app.touchId = null; app.localPaddle=null;app.musicPausedByUser=false;closeControlPanels();stopMusic();stopVoice();
   oldWs?.close();
   const url = new URL(location.href); url.searchParams.delete('sala'); history.replaceState(null,'',url);
   ui.game.classList.add('hidden'); ui.home.classList.remove('hidden');
-  ui.error.textContent = ''; connect();
+  ui.error.textContent = ''; if(selectedTransport==='online'||selectedTransport==='lan')connect();else setConnection(false);
 });
 // Paneles flotantes: mantienen la pista a tamaño completo y se cierran entre sí.
 const controlPanels = [
@@ -749,26 +951,49 @@ function moveInput(e, force=false) {
   const now = performance.now();
   if(force || now-app.sendAt>=16)sendMove(p);
 }
-ui.arena.addEventListener('pointerdown', e => {
-  if (app.touchId !== null) return;
-  app.touchId = e.pointerId;
+function isSharedScreen(){return app.localBot?.kind==='screen';}
+function moveUpperInput(e){
+  if(!isSharedScreen()||!app.state||!isPlaying())return;
+  const rect=ui.arena.getBoundingClientRect(),r=app.state.paddles[1]?.r??PADDLE_R;
+  const rawX=(e.clientX-rect.left)/rect.width*W;
+  const rawY=(e.clientY-rect.top)/rect.height*H;
+  app.inputTop={x:Math.max(r+2,Math.min(W-r-2,rawX)),
+    y:Math.max(r+19,Math.min(H/2-r-5,rawY))};
+}
+ui.arena.addEventListener('pointerdown',e=>{
+  if(isSharedScreen()){
+    const rect=ui.arena.getBoundingClientRect();
+    const upper=(e.clientY-rect.top)/rect.height*H<H/2;
+    if(upper){if(app.topTouchId!==null)return;app.topTouchId=e.pointerId;}
+    else {if(app.touchId!==null)return;app.touchId=e.pointerId;}
+    ui.arena.setPointerCapture?.(e.pointerId);
+    unlockAudio();if(upper)moveUpperInput(e);else moveInput(e,true);
+    return;
+  }
+  if(app.touchId!==null)return;
+  app.touchId=e.pointerId;
   ui.arena.setPointerCapture?.(e.pointerId);
-  unlockAudio(); moveInput(e,true);
+  unlockAudio();moveInput(e,true);
 });
-ui.arena.addEventListener('pointermove', e => {
-  if (app.touchId === e.pointerId) moveInput(e);
+ui.arena.addEventListener('pointermove',e=>{
+  if(app.touchId===e.pointerId)moveInput(e);
+  else if(isSharedScreen()&&app.topTouchId===e.pointerId)moveUpperInput(e);
 });
-function releasePointer(e) {
-  if (app.touchId !== e.pointerId) return;
-  if(e.type==='pointerup')moveInput(e,true);
-  app.touchId=null;
-  try { if(ui.arena.hasPointerCapture(e.pointerId))ui.arena.releasePointerCapture(e.pointerId); } catch {}
+function releasePointer(e){
+  if(app.touchId!==e.pointerId&&app.topTouchId!==e.pointerId)return;
+  if(e.type==='pointerup'){
+    if(app.touchId===e.pointerId)moveInput(e,true);
+    else moveUpperInput(e);
+  }
+  if(app.touchId===e.pointerId)app.touchId=null;
+  if(app.topTouchId===e.pointerId)app.topTouchId=null;
+  try{if(ui.arena.hasPointerCapture(e.pointerId))ui.arena.releasePointerCapture(e.pointerId);}catch{}
 }
 ui.arena.addEventListener('pointerup',releasePointer);
 ui.arena.addEventListener('pointercancel',releasePointer);
-ui.arena.addEventListener('lostpointercapture',e=>{if(app.touchId===e.pointerId)app.touchId=null;});
-window.addEventListener('blur',()=>{app.touchId=null;keys.clear();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)app.touchId=null;});
+ui.arena.addEventListener('lostpointercapture',e=>{if(app.touchId===e.pointerId)app.touchId=null;if(app.topTouchId===e.pointerId)app.topTouchId=null;});
+window.addEventListener('blur',()=>{app.touchId=null;app.topTouchId=null;keys.clear();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){app.touchId=null;app.topTouchId=null;}});
 // Control opcional desde un ordenador: WASD o flechas.
 const keys = new Set();
 window.addEventListener('keydown', e => {
@@ -1009,7 +1234,16 @@ function draw(t){
   if(t+.75<app.nextPaintAt)return;
   app.nextPaintAt=Math.max(app.nextPaintAt+1000/60,t+1000/120);
   const dt=Math.min(.04,Math.max(.001,(t-app.lastFrame)/1000));app.lastFrame=t;
-  if(app.localBot)handleMessage(app.localBot.engine.tickLocalBot(app.localBot.session,t,app.input));
+  if(app.localBot){
+    const {session,engine,kind}=app.localBot;
+    const localState=kind==='bot'?engine.tickLocalBot(session,t,app.input)
+      :engine.tickLocalDuel(session,t,[app.input,kind==='screen'?app.inputTop:null]);
+    handleMessage(localState);
+    if(kind==='direct-host'&&app.p2p?.link?.connected&&(t-app.directSendAt>=33||localState.phase!==app.directLastPhase||localState.event?.id!==app.directLastEvent)){
+      app.p2p.link.send(localState);
+      app.directSendAt=t;app.directLastPhase=localState.phase;app.directLastEvent=localState.event?.id;
+    }
+  }
   ctx.setTransform(ui.arena.width/W,0,0,ui.arena.height/H,0,0);
   ctx.drawImage(backdrops[sideFor(app.state)===1?1:0],0,0,W,H);
   const s=app.state;
@@ -1078,5 +1312,5 @@ function draw(t){
 }
 requestAnimationFrame(draw);
 // Light ping every 3s gives players an honest RTT indicator; no paid service.
-setInterval(()=>{if(app.online&&app.room&&!app.localBot)send({type:'ping',at:performance.now()});},3000);
+setInterval(()=>{if(app.online&&app.room&&!app.localBot&&!app.p2p)send({type:'ping',at:performance.now()});},3000);
 connect();

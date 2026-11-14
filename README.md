@@ -1,3 +1,7 @@
+# Air Hockey DUO Arena 5.4 RC1 — juego local sin computadora
+
+Revisa `GUIA_5_4_DOS_CELULARES_Y_UNA_PANTALLA.md` para uso, límites, compatibilidad y pruebas.
+
 # 🏒 Air Hockey DUO Arena 5.2 — duelo LAN (candidata)
 
 **Nuevo modo multijugador local 1 vs. 1**, sin Internet durante las partidas: dos teléfonos conectados a una computadora anfitriona sobre la misma Wi-Fi. Física del servidor LAN a 60 Hz; estados por WebSocket local a 30 Hz. No depende de Cloudflare. Conserva el código online y bot local de Arena 5.1.

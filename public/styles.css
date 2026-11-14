@@ -161,3 +161,25 @@ body:before{content:"";position:fixed;inset:0;background-image:linear-gradient(r
 .lan-address-row{display:flex;gap:8px;min-width:0;margin-top:12px}.lan-address-row .text-input{min-width:0;flex:1;font-size:13px;height:44px}.lan-address-row .secondary-button{padding:0 11px;height:44px;font-size:11px}
 .lan-setup-message{min-height:1.3em;color:#a9dfef}.primary-button:disabled,.secondary-button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:380px){.connection-option{padding:10px}.connection-option-title{font-size:11px}.connection-option-sub{font-size:9px}.lan-address-row{flex-wrap:wrap}.lan-address-row .secondary-button{width:100%}}
+
+/* Arena 5.4: two-device direct play and shared-screen touch controls */
+.connection-picker .connection-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+.direct-setup{margin-top:10px;padding:16px;background:linear-gradient(145deg,rgba(20,58,82,.95),rgba(15,33,55,.94));border:1px solid rgba(113,225,251,.38);border-radius:15px;color:#e4f8ff;font-size:12px;line-height:1.55}
+.direct-setup.hidden,.direct-output.hidden{display:none}
+.direct-setup>strong{font-size:14px;color:#93eaff}
+.direct-setup p{margin:8px 0 12px;color:#bed7e6}
+.direct-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.direct-actions button,.direct-setup #direct-complete,.direct-setup #direct-copy{font-size:11px;padding:10px;min-height:44px}
+.direct-setup .input-label{display:block;margin-top:12px}
+.direct-text{display:block;width:100%;min-width:0;resize:vertical;max-height:170px;border-radius:10px;background:#091b30;border:1px solid rgba(128,204,241,.48);color:#e4faff;font-size:11px;line-height:1.5;padding:10px;overflow-wrap:anywhere}
+.direct-text:focus-visible{outline:2px solid #65eaff;outline-offset:2px}
+.direct-output{margin-top:13px;display:grid;gap:10px;padding:12px;border-radius:12px;background:rgba(0,0,0,.14)}
+.direct-output strong{color:#79e9ff}
+.direct-qr{display:grid;place-items:center;max-width:100%;overflow:hidden}
+.direct-qr img{display:block;max-width:min(100%,360px);width:100%;aspect-ratio:1;background:white;border-radius:12px;padding:8px;image-rendering:pixelated}
+.direct-qr span{font-size:11px;color:#dbeeff}
+.direct-status{color:#a3e9ed;min-height:20px}
+body[data-transport="direct"] .home-panel .join-row,body[data-transport="direct"] .home-panel .or-line,body[data-transport="direct"] .home-panel #create-btn{display:none}
+body[data-transport="screen"] .home-panel .join-row,body[data-transport="screen"] .home-panel .or-line{display:none}
+body[data-transport="screen"] .arena-frame canvas{touch-action:none}
+@media(max-width:360px){.direct-actions{grid-template-columns:1fr}.direct-actions button{min-height:39px}}

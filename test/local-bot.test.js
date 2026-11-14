@@ -56,7 +56,7 @@ test('late compensated bounce cannot be turned into an immediate goal-side canno
 test('local game never sends a websocket movement or requires Cloudflare for bot state',()=>{
   const game=readFileSync(new URL('../public/game.js',import.meta.url),'utf8');
   assert.match(game,/if\(settings.mode==='bot'\)/);
-  assert.match(game,/app.localBot\.engine\.tickLocalBot/);
+  assert.match(game,/engine\.tickLocalBot/);
   assert.match(game,/app\.localBot\?\{\.\.\.puckTarget\}/);
 });
 

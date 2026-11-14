@@ -1,6 +1,6 @@
 {
   "name": "air-hockey-duo-cloudflare",
-  "version": "5.3.0-rc.1",
+  "version": "5.4.0-rc.1",
   "private": true,
   "description": "Air Hockey DUO multijugador, gratis en Cloudflare Workers y Durable Objects",
   "type": "module",
@@ -8,7 +8,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "node --test test/*.test.js test/historical/*.test.js scripts/rc2-network-gates.mjs",
-    "check": "node scripts/sync-local-engine.mjs --check && node --check public/local-bot.js && node --check src/worker.js && node --check src/physics.js && node --check src/geometry.js && node --check src/input.js && node --check src/tournament.js && node --check public/game.js && node --check public/motion.js && npm test",
+    "check": "node scripts/sync-local-engine.mjs --check && node --check public/local-bot.js && node --check public/local-duel.js && node --check public/peer-direct.js && node --check public/qr-local.js && node --check public/game.js && node --check public/motion.js && node --check src/worker.js && npm test",
     "test:baseline": "node scripts/baseline.mjs",
     "test:network": "node --test test/network-latency-v504.test.js scripts/rc2-network-gates.mjs",
     "audit:metrics": "node scripts/rc2-metrics.mjs",
