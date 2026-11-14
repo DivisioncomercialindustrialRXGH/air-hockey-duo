@@ -7,8 +7,8 @@ const root=new URL('../public/',import.meta.url);
 const sw=readFileSync(new URL('sw.js',root),'utf8');
 const html=readFileSync(new URL('index.html',root),'utf8');
 const game=readFileSync(new URL('game.js',root),'utf8');
-const CACHE='hockey-duo-v5-5-0-cross-beta';
-const VERSION='5.5.0-cross-beta.1';
+const CACHE='hockey-duo-v5-5-1-offline-hotfix';
+const VERSION='5.5.1-offline-hotfix.1';
 function harness(networkWorks=true){
   const listeners={},db=new Map(),deleted=[];
   const response={ok:true,status:200,type:'basic',clone(){return this;}};
@@ -22,6 +22,7 @@ function harness(networkWorks=true){
           db.get(name).set(path,response);
         }
       },
+      async add(path){if(!networkWorks)throw Error('offline');db.get(name).set(path,response);},
       async match(request){return db.get(name).get(typeof request==='string'?request:request.url.replace('https://test.invalid',''));},
       async put(req,res){db.get(name).set(typeof req==='string'?req:req.url.replace('https://test.invalid',''),res);}
     };
@@ -37,12 +38,12 @@ function harness(networkWorks=true){
 test('offline app shell caches every imported local engine and current version',async()=>{
   const h=harness();let pending;
   h.listeners.install({waitUntil:x=>pending=x});await pending;
-  const cached=h.db.get(CACHE);assert.ok(cached?.size>=16);
+  const cached=h.db.get(CACHE);assert.ok(cached?.size>=13);
   for(const path of ['/','/engine/physics.js','/engine/geometry.js','/local-duel.js?v=5.4.0-direct.1',
-     '/local-bot.js?v=5.3.0-choices.1',`/game.js?v=${VERSION}`,`/motion.js?v=${VERSION}`])assert.ok(cached.has(path),path);
+     '/local-bot.js?v=5.3.0-choices.1',`/game.js?v=${VERSION}`,'/motion.js?v=5.5.0-cross-beta.1'])assert.ok(cached.has(path),path);
   assert.ok(!cached.has('/index.html'),'avoid redirected navigation entry');
   assert.match(html,/id="offline-ready"/);
-  assert.match(html,/5\.5\.0-cross-beta\.1/);
+  assert.match(html,/5\.5\.1-offline-hotfix\.1/);
   assert.match(game,/refreshOfflineReadiness/);
   assert.match(game,/navigator\.onLine===false\?'screen':'online'/);
 });

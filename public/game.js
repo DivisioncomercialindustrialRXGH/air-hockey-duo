@@ -37,7 +37,7 @@ const ui = {
   chatToggle: $('#chat-toggle'), chatPanel: $('#chat-panel'), chatClose: $('#chat-close'),
   chatMessages: $('#chat-messages'), chatForm: $('#chat-form'), chatInput: $('#chat-input'),
   voiceButton: $('#voice-btn'),
-  chooseOnline: $('#choose-online'), chooseLan: $('#choose-lan'), chooseDirect: $('#choose-direct'), chooseScreen: $('#choose-screen'),
+  chooseOnline: $('#choose-online'), chooseLan: $('#choose-lan'), chooseDirect: $('#choose-direct'), chooseScreen: $('#choose-screen'), chooseBot: $('#choose-bot'),
   directSetup: $('#direct-setup'), directHost: $('#direct-host'), directGuest: $('#direct-guest'),
   directRemote: $('#direct-remote'), directComplete: $('#direct-complete'),directOutput: $('#direct-output'),
   directCode: $('#direct-code'),directCopy: $('#direct-copy'),directQr: $('#direct-qr'),
@@ -63,6 +63,9 @@ const app = {
   musicRequested:false,musicPausedByUser:false,rankAutoOpened:false,voiceEnabled:false,localStream:null,pcs:new Map(),voiceReady:[]
 };
 ui.playerName.value = app.name;
+// Initialize BEFORE selectTransport() runs at startup, including airplane mode.
+// Otherwise a Temporal Dead Zone error disables all buttons in the offline PWA.
+let roomRequestTimer=null;
 function selectTransport(next){
   selectedTransport=next;
   ui.chooseOnline.setAttribute('aria-pressed',String(next==='online'));
@@ -101,6 +104,13 @@ ui.chooseOnline.addEventListener('click',()=>{
 });
 ui.chooseLan.addEventListener('click',()=>selectTransport('lan'));
 ui.chooseScreen.addEventListener('click',()=>selectTransport('screen'));
+// Local BOT is available even without a WebSocket or Internet connection.
+ui.chooseBot.addEventListener('click',()=>{
+  selectTransport('online');
+  ui.mode.value='bot';
+  updateModeFields();
+  createFromInput();
+});
 ui.chooseDirect.addEventListener('click',()=>selectTransport('direct'));
 function parseLanAddress(value){
   // Intentionally limited to private IPv4 LAN addresses, not arbitrary user-supplied URLs.
@@ -234,7 +244,6 @@ function connect() {
   });
   socket.addEventListener('error', () => { if (app.ws === socket) setConnection(false); });
 }
-let roomRequestTimer=null;
 function clearRoomRequestTimer(){
   if(roomRequestTimer!==null){clearTimeout(roomRequestTimer);roomRequestTimer=null;}
 }
@@ -927,8 +936,9 @@ async function refreshOfflineReadiness(){
   if(!('serviceWorker' in navigator)||!('caches' in window)){
     tag.dataset.ready='false';tag.textContent='Para abrir el juego sin Internet, usa Safari/Chrome actualizado e instala la app.';return;
   }
-  const key='hockey-duo-v5-5-0-cross-beta';
+  const key='hockey-duo-v5-5-1-offline-hotfix';
   try{
+    if(!navigator.serviceWorker.controller)throw Error('La página no está controlada por la app guardada');
     if(!await caches.has(key))throw Error('La descarga aún no termina');
     const cache=await caches.open(key);
     const paths=['/','/game.js?v=5.5.0-cross-beta.1','/styles.css?v=5.5.0-cross-beta.1',
@@ -940,7 +950,7 @@ async function refreshOfflineReadiness(){
     tag.textContent='✓ LISTO SIN INTERNET · Dos jugadores en una pantalla y contra BOT. Para LAN, conecta a tu Wi-Fi local.';
   }catch{
     tag.dataset.ready='false';
-    tag.textContent='⏳ Preparando juego sin Internet. Conéctate una vez y mantén abierta esta página hasta que aparezca «LISTO».';
+    tag.textContent='⏳ Instalando archivos locales. Con Internet abre la app y espera a que aparezca «LISTO SIN INTERNET» antes de activar modo avión.';
   }
 }
 window.addEventListener('online',()=>{if(!LAN_HOST && ['online','lan'].includes(selectedTransport))connect();refreshOfflineReadiness();});
