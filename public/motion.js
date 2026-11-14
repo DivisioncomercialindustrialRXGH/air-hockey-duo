@@ -128,7 +128,28 @@ export function samplePuckPose(frames,now,opts={}){
   for(let i=1;i<frames.length;i++){
     const a=frames[i-1],b=frames[i];
     if(target<=b.at){
-      const f=clamp((target-a.at)/Math.max(1,b.at-a.at),0,1);
+      const elapsed=(target-a.at)/1000, duration=Math.max(.001,(b.at-a.at)/1000);
+      const f=clamp(elapsed/duration,0,1);
+      // For one high-energy bounce/hit within two authoritative snapshots,
+      // the straight chord between endpoints may cut THROUGH the mallet.
+      // Infer the contact time from pre/post velocities and the two observed
+      // endpoints, but only when the inferred trajectory matches the server.
+      const dvx=a.vx-b.vx,dvy=a.vy-b.vy;
+      const dv2=dvx*dvx+dvy*dvy;
+      if((b.eventKind==='wall'||b.eventKind==='hit') && dv2>90000 && duration<=.12){
+        const dx=b.x-a.x-b.vx*duration,dy=b.y-a.y-b.vy*duration;
+        const impact=(dx*dvx+dy*dvy)/dv2;
+        const contact=clamp(impact,0,duration);
+        const endX=a.x+a.vx*contact+b.vx*(duration-contact);
+        const endY=a.y+a.vy*contact+b.vy*(duration-contact);
+        if(impact>=0 && impact<=duration && Math.hypot(endX-b.x,endY-b.y)<=Math.max(6,duration*90)){
+          const before=Math.min(elapsed,contact),after=Math.max(0,elapsed-contact);
+          return {at:target,x:a.x+a.vx*before+b.vx*after,
+            y:a.y+a.vy*before+b.vy*after,
+            vx:elapsed<contact?a.vx:b.vx,vy:elapsed<contact?a.vy:b.vy,
+            r:a.r+(b.r-a.r)*f};
+        }
+      }
       return {at:target,x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,
         vx:a.vx+(b.vx-a.vx)*f,vy:a.vy+(b.vy-a.vy)*f,
         r:a.r+(b.r-a.r)*f};

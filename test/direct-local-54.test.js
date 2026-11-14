@@ -74,13 +74,13 @@ test('WebRTC manual invite-answer exchanges state through a simulated direct Dat
   }
   const created=[];
   class FakePeerConnection{
-    constructor(config){assert.deepEqual(config.iceServers,[]);this.iceGatheringState='complete';this.connectionState='new';created.push(this);}
+    constructor(config){assert.deepEqual(config.iceServers,[]);this.iceGatheringState='complete';this.signalingState='stable';this.connectionState='new';created.push(this);}
     createDataChannel(){const a=new FakeChannel(),b=new FakeChannel();a.partner=b;b.partner=a;this.dataChannel=a;this.otherChannel=b;return a;}
     async createOffer(){return {type:'offer',sdp:'v=0\r\na=candidate:1 1 udp 123 192.168.1.21 5000 typ host\r\n'};}
     async createAnswer(){return {type:'answer',sdp:'v=0\r\na=candidate:1 1 udp 123 192.168.1.22 5001 typ host\r\n'};}
-    async setLocalDescription(desc){this.localDescription=desc;}
+    async setLocalDescription(desc){this.localDescription=desc;this.signalingState=desc.type==='offer'?'have-local-offer':'stable';}
     async setRemoteDescription(desc){
-      this.remoteDescription=desc;
+      this.remoteDescription=desc;this.signalingState=desc.type==='answer'?'stable':'have-remote-offer';
       if(desc.type==='offer')this.ondatachannel?.({channel:created[0].otherChannel});
       if(desc.type==='answer')queueMicrotask(()=>{created[0].dataChannel.open();created[0].otherChannel.open();});
     }
@@ -91,7 +91,11 @@ test('WebRTC manual invite-answer exchanges state through a simulated direct Dat
     let opened=0,received;
     const host=directPeer({onOpen:()=>opened++});
     const guest=directPeer({onOpen:()=>opened++,onMessage:msg=>received=msg});
-    const offer=await host.offer();const answer=await guest.answer(offer);await host.complete(answer);
+    const offer=await host.offer();const answer=await guest.answer(offer);
+    // The same answer can arrive over several Safari signaling routes at once.
+    await Promise.all([host.complete(answer),host.complete(answer)]);
+    await host.complete(answer);
+    assert.equal(created[0].remoteDescription.type,'answer');
     await new Promise(resolve=>setImmediate(resolve));
     assert.equal(opened,2);assert.equal(host.connected,true);assert.equal(guest.connected,true);
     assert.equal(host.send({type:'state',puck:{x:250,y:450}}),true);

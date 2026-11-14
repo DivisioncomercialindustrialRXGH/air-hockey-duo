@@ -12,7 +12,7 @@
   <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/styles.css?v=5.4.0-direct.1" />
+  <link rel="stylesheet" href="/styles.css?v=5.4.2-stability-offline.1" />
 </head>
 <body>
   <div class="ambient ambient-one"></div>
@@ -41,6 +41,9 @@
         <div class="feature-tags"><span>⚡ Tiempo real</span><span>👆 Control táctil</span><span>👥 2 vs. 2</span><span>🏆 Torneos</span><span>🤖 Contra bot</span><span>🔗 Sala privada</span><span>🎁 Poderes sorpresa</span></div>
       </section>
 
+      <p id="offline-ready" class="offline-readiness" role="status" aria-live="polite">
+        Preparando los modos sin Internet…
+      </p>
       <section class="connection-picker" aria-label="Elegir dónde jugar">
         <div class="connection-cards" role="group" aria-label="Tipo de conexión">
           <button id="choose-online" type="button" class="connection-option" aria-pressed="true">
@@ -63,7 +66,7 @@
         <div id="direct-setup" class="direct-setup hidden">
           <strong>Dos celulares · conexión directa</strong>
           <p>Conecta ambos teléfonos al mismo Wi-Fi y abre la app instalada en cada uno. Uno crea una invitación y el otro genera la respuesta. Ninguna computadora es necesaria.</p>
-          <p>Primero debes abrir la app con Internet una vez en ambos celulares para conservarla sin conexión. En iPhone usa la cámara normal para leer el QR; si no funciona, comparte el texto con AirDrop u otro medio local.</p>
+          <p>Instala y abre la app conectado una vez en cada teléfono; espera el aviso «LISTO SIN INTERNET». En iPhone usa la cámara normal para leer el QR; si no funciona, comparte el texto con AirDrop u otro medio local.</p>
           <div class="direct-actions">
             <button id="direct-host" type="button" class="secondary-button">1. CREAR INVITACIÓN</button>
             <button id="direct-guest" type="button" class="secondary-button">2. RESPONDER INVITACIÓN</button>
@@ -82,7 +85,7 @@
         </div>
         <div id="lan-setup" class="lan-setup hidden">
           <strong>Dos o más celulares conectados al mismo Wi-Fi</strong>
-          <p>Para esta versión se necesita una computadora Mac o Windows como anfitriona, con el servidor LAN iniciado. No hace falta Internet.</p>
+          <p>Necesitas una computadora Mac o Windows con el servidor LAN encendido, y ambos teléfonos en el mismo Wi-Fi. El router NO necesita Internet. Abre la IP local del servidor en los teléfonos.</p>
           <div id="lan-remote-entry" class="lan-address-row">
             <input id="lan-address" class="text-input" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.1.50:8787" aria-label="Dirección local de la computadora" />
             <button id="open-lan" type="button" class="secondary-button">ENTRAR <span>→</span></button>
@@ -212,6 +215,6 @@
     </main>
     <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
   </div>
-  <script type="module" src="/game.js?v=5.4.0-direct.1"></script>
+  <script type="module" src="/game.js?v=5.4.2-stability-offline.1"></script>
 </body>
 </html>

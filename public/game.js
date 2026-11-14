@@ -1,5 +1,5 @@
 // Versioned import: a cached 5.0.2 motion.js can never be mixed with this game.js.
-import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.4.0-direct.1';
+import {sampleRemotePose, samplePuckPose, softenPuckPosition, serverFrameTime, pushSnapshot, playoutTime, localBounds} from './motion.js?v=5.4.2-stability-offline.1';
 import {directPeer} from './peer-direct.js?v=5.4.0-direct.1';
 import {qrSvg} from './qr-local.js?v=5.4.0-direct.1';
 const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
@@ -7,7 +7,7 @@ const W = 500, H = 900, PADDLE_R = 37, PUCK_R = 16;
 const LAN_HOST = /^(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(location.hostname) && location.protocol==='http:';
 document.documentElement.dataset.lan=String(LAN_HOST);
 const REMOTE_URL='https://air-hockey-duo.global-realtor1.workers.dev/';
-let selectedTransport=LAN_HOST?'lan':'online';
+let selectedTransport=LAN_HOST?'lan':(navigator.onLine===false?'screen':'online');
 const $ = selector => document.querySelector(selector);
 const storage = {
   getItem(key) { try { return localStorage.getItem(key); } catch { return null; } },
@@ -70,9 +70,16 @@ function selectTransport(next){
   ui.directSetup.classList.toggle('hidden',next!=='direct');
   document.body.dataset.transport=next;
   if(['screen','direct'].includes(next)){
+    app.pending=null;
+    clearRoomRequestTimer();
     if(app.ws){const previous=app.ws;app.ws=null;previous.close();}
     setConnection(true);
-  } else if(!app.ws && !app.localBot)connect();
+  } else if(!app.localBot){
+    // A local-mode status is NOT evidence that the Cloudflare WebSocket is open.
+    // Do not make creation appear successful while a new socket is connecting.
+    if(app.ws?.readyState!==WebSocket.OPEN)setConnection(false);
+    if(!app.ws||![WebSocket.OPEN,WebSocket.CONNECTING].includes(app.ws.readyState))connect();
+  }
   ui.lanSetup.classList.toggle('hidden',next!=='lan');
   document.querySelector('#lan-mode-banner').classList.toggle('hidden',!LAN_HOST);
   ui.lanEntry.classList.toggle('hidden',LAN_HOST);
@@ -186,6 +193,7 @@ function nameFor(defaultName) {
 }
 function connect() {
   if(app.localBot||app.p2p||selectedTransport==='direct'||selectedTransport==='screen')return;
+  if(!LAN_HOST && navigator.onLine===false){setConnection(false);ui.connectionText.textContent='SIN INTERNET · JUEGO LOCAL DISPONIBLE';return;}
   if (app.ws && [WebSocket.OPEN,WebSocket.CONNECTING].includes(app.ws.readyState)) return;
   const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   app.ws = socket;
@@ -221,11 +229,35 @@ function connect() {
   });
   socket.addEventListener('error', () => { if (app.ws === socket) setConnection(false); });
 }
+let roomRequestTimer=null;
+function clearRoomRequestTimer(){
+  if(roomRequestTimer!==null){clearTimeout(roomRequestTimer);roomRequestTimer=null;}
+}
 function queue(data) {
-  if (app.online) send(data);
-  else { app.pending = data; connect(); }
+  if(!LAN_HOST && navigator.onLine===false){showError('No hay conexión a Internet. Para jugar ahora elige UNA PANTALLA o CONTRA BOT; para LAN con PC abre su IP local.');return;}
+  // Previously app.online could remain true after switching from DIRECT/SCREEN,
+  // while the actual WebSocket was CONNECTING. send() then silently discarded CREATE.
+  clearRoomRequestTimer();
+  ui.error.textContent='';
+  if(app.ws?.readyState===WebSocket.OPEN){
+    app.pending=null;
+    send(data);
+  }else{
+    app.pending=data;
+    setConnection(false);
+    ui.connectionText.textContent='CONECTANDO AL SERVIDOR';
+    connect();
+  }
+  roomRequestTimer=setTimeout(()=>{
+    roomRequestTimer=null;
+    if(!app.room){
+      app.pending=null;
+      showError('No se pudo '+(data.type==='create'?'crear':'abrir')+' la sala online. Comprueba Internet y pulsa de nuevo. Si persiste, puede haber un problema en el servidor.');
+    }
+  },15000);
 }
 function showError(msg) {
+  clearRoomRequestTimer();
   ui.error.textContent = msg;
   if (app.room && !app.state) {
     ui.overlayTitle.textContent = 'NO SE PUDO UNIR';
@@ -454,6 +486,8 @@ function handleMessage(msg) {
   }
   if (msg.type === 'error') { showError(msg.message || 'Ha ocurrido un error.'); return; }
   if (msg.type === 'joined') {
+    clearRoomRequestTimer();
+    app.pending=null;
     app.room = msg.code; app.seat = msg.seat; app.token = msg.token;
     app.musicPausedByUser=false; app.musicRequested=false; ui.toolbarMode.textContent=({duel:'DUELO',duo:'2 VS 2',teams:'4 VS 4',tournament:'TORNEO',bot:'VS BOT'})[msg.settings?.mode]||'DUELO';
     ui.voiceButton.disabled= LAN_HOST || !!app.localBot || !!app.p2p || !['duel','duo'].includes(msg.settings?.mode);
@@ -516,7 +550,8 @@ function handleMessage(msg) {
     const facing=sideFor(msg)===1?-1:1;
     const oriented=orient(msg.puck,msg);
     pushSnapshot(app.puckFrames,{at:msg.serverNow,x:oriented.x,y:oriented.y,
-      vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R});
+      vx:msg.puck.vx*facing,vy:msg.puck.vy*facing,r:msg.puck.r||PUCK_R,
+      eventKind:msg.event?.id!==prev?.event?.id?msg.event?.type:null});
     if (msg.event && msg.event.id > app.lastEventSeen) {
       app.lastEventSeen=msg.event.id;
       const e=orient(msg.event);
@@ -701,6 +736,7 @@ ui.leave.addEventListener('click', () => {
   app.p2p?.link?.close();app.p2p=null;
   app.topTouchId=null;
   const oldWs = app.ws;
+  clearRoomRequestTimer();app.pending=null;
   app.ws = null; app.room = null; app.token = null; app.state = null; app.desiredJoin = null;
   app.pending = null; app.touchId = null; app.localPaddle=null;app.musicPausedByUser=false;closeControlPanels();stopMusic();stopVoice();
   oldWs?.close();
@@ -872,7 +908,43 @@ ui.install.addEventListener('click',async()=>{
 });
 window.addEventListener('appinstalled',()=>{ui.install.textContent='✓ INSTALADA';ui.installHelp.classList.add('hidden');});
 if(LAN_HOST||window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true)ui.install.classList.add('hidden');
-if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+// Display offline availability only after the entire versioned app shell
+// was saved. A connection to local Wi-Fi is still needed for LAN/direct.
+async function refreshOfflineReadiness(){
+  const tag=document.querySelector('#offline-ready');
+  if(!tag)return;
+  if(LAN_HOST){tag.dataset.ready='true';tag.textContent='📡 LAN LOCAL · No se necesita Internet. Mantén encendida la computadora anfitriona.';return;}
+  if(!('serviceWorker' in navigator)||!('caches' in window)){
+    tag.dataset.ready='false';tag.textContent='Para abrir el juego sin Internet, usa Safari/Chrome actualizado e instala la app.';return;
+  }
+  const key='hockey-duo-v5-4-2-stability-offline';
+  try{
+    if(!await caches.has(key))throw Error('La descarga aún no termina');
+    const cache=await caches.open(key);
+    const paths=['/','/game.js?v=5.4.2-stability-offline.1','/styles.css?v=5.4.2-stability-offline.1',
+      '/local-duel.js?v=5.4.0-direct.1','/local-bot.js?v=5.3.0-choices.1',
+      '/motion.js?v=5.4.2-stability-offline.1','/engine/physics.js','/engine/geometry.js'];
+    const matches=await Promise.all(paths.map(path=>cache.match(path)));
+    if(matches.some(m=>!m))throw Error('Faltan archivos locales');
+    tag.dataset.ready='true';
+    tag.textContent='✓ LISTO SIN INTERNET · Dos jugadores en una pantalla y contra BOT. Para LAN, conecta a tu Wi-Fi local.';
+  }catch{
+    tag.dataset.ready='false';
+    tag.textContent='⏳ Preparando juego sin Internet. Conéctate una vez y mantén abierta esta página hasta que aparezca «LISTO».';
+  }
+}
+window.addEventListener('online',()=>{if(!LAN_HOST && ['online','lan'].includes(selectedTransport))connect();refreshOfflineReadiness();});
+window.addEventListener('offline',()=>{if(!LAN_HOST && selectedTransport==='online'){setConnection(false);ui.connectionText.textContent='SIN INTERNET · ELIGE UNA PANTALLA';}refreshOfflineReadiness();});
+if('serviceWorker' in navigator)window.addEventListener('load',async()=>{
+  try{
+    await navigator.serviceWorker.register('/sw.js');
+    await refreshOfflineReadiness(); // Informar si la caché aún no está lista.
+    await navigator.serviceWorker.ready;
+    await refreshOfflineReadiness();
+    navigator.serviceWorker.addEventListener('controllerchange',refreshOfflineReadiness);
+  }catch{refreshOfflineReadiness();}
+});
+
 
 // Optional voice: browser-to-browser WebRTC with STUN. Some networks need TURN (not included).
 function createVoicePeer(seat){

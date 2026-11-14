@@ -53,7 +53,7 @@ async function iceDone(peer,timeout=12000){
 export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStatus=()=>{}}={}){
   if(!globalThis.RTCPeerConnection)throw Error('Este navegador no permite WebRTC. Prueba Safari o Chrome actualizado.');
   const peer=new RTCPeerConnection({iceServers:[],iceTransportPolicy:'all'});
-  let channel=null,closed=false;
+  let channel=null,closed=false,completing=null,answerApplied=null;
   function attach(c){
     channel=c;
     c.onopen=()=>{onStatus('Conectado directamente · sin servidor');onOpen();};
@@ -99,8 +99,22 @@ export function directPeer({onOpen=()=>{},onMessage=()=>{},onClose=()=>{},onStat
     async complete(answerText){
       const answer=await decodeSignal(answerText);
       if(answer.type!=='answer')throw Error('Necesitas una respuesta, no otra invitación.');
-      await peer.setRemoteDescription(answer);
-      onStatus('Conectando directamente los dos teléfonos…');
+      if(answerApplied){
+        if(answerApplied===answer.sdp){onStatus('Respuesta ya recibida; conectando teléfonos…');return;}
+        throw Error('Esta invitación ya recibió una respuesta diferente. Crea una nueva partida.');
+      }
+      // Safari may deliver the same QR response by focus + BroadcastChannel + button.
+      // Only one setRemoteDescription(answer) may be in flight.
+      if(completing)return completing;
+      if(peer.signalingState!=='have-local-offer'){
+        throw Error('La invitación ya no está activa. Crea una nueva invitación y prueba otra vez.');
+      }
+      completing=(async()=>{
+        await peer.setRemoteDescription(answer);
+        answerApplied=answer.sdp;
+        onStatus('Conectando directamente los dos teléfonos…');
+      })();
+      try{await completing;}finally{completing=null;}
     },
     close(){closed=true;channel?.close();peer.close();}
   };

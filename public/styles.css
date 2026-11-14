@@ -183,3 +183,9 @@ body[data-transport="direct"] .home-panel .join-row,body[data-transport="direct"
 body[data-transport="screen"] .home-panel .join-row,body[data-transport="screen"] .home-panel .or-line{display:none}
 body[data-transport="screen"] .arena-frame canvas{touch-action:none}
 @media(max-width:360px){.direct-actions{grid-template-columns:1fr}.direct-actions button{min-height:39px}}
+
+/* Estado visible de disponibilidad offline. No significa que las salas online
+   funcionen sin Internet. */
+.offline-readiness{margin:12px auto 16px;max-width:780px;border:1px solid rgba(114,184,250,.28);border-radius:14px;padding:12px 15px;text-align:center;font-size:.88rem;line-height:1.5;background:rgba(10,27,49,.72);color:#cde7fa}
+.offline-readiness[data-ready="true"]{border-color:rgba(89,230,168,.56);color:#baffd9;background:rgba(10,58,40,.34)}
+.offline-readiness[data-ready="false"]{border-color:rgba(255,193,88,.4);color:#ffe4b8}
