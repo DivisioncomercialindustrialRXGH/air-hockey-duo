@@ -7,8 +7,8 @@ const root=new URL('../public/',import.meta.url);
 const sw=readFileSync(new URL('sw.js',root),'utf8');
 const html=readFileSync(new URL('index.html',root),'utf8');
 const game=readFileSync(new URL('game.js',root),'utf8');
-const CACHE='hockey-duo-v5-4-2-stability-offline';
-const VERSION='5.4.2-stability-offline.1';
+const CACHE='hockey-duo-v5-5-0-cross-beta';
+const VERSION='5.5.0-cross-beta.1';
 function harness(networkWorks=true){
   const listeners={},db=new Map(),deleted=[];
   const response={ok:true,status:200,type:'basic',clone(){return this;}};
@@ -42,7 +42,7 @@ test('offline app shell caches every imported local engine and current version',
      '/local-bot.js?v=5.3.0-choices.1',`/game.js?v=${VERSION}`,`/motion.js?v=${VERSION}`])assert.ok(cached.has(path),path);
   assert.ok(!cached.has('/index.html'),'avoid redirected navigation entry');
   assert.match(html,/id="offline-ready"/);
-  assert.match(html,/5\.4\.2-stability-offline\.1/);
+  assert.match(html,/5\.5\.0-cross-beta\.1/);
   assert.match(game,/refreshOfflineReadiness/);
   assert.match(game,/navigator\.onLine===false\?'screen':'online'/);
 });

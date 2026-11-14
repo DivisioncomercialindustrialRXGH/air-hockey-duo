@@ -13,6 +13,7 @@ import {
   W,H,TICK_RATE,makeRoom,countdown,movePaddles,stepPuck,updatePower,
   recenterPuck,puckRadius,paddleRadius,boundsForPaddle,clamp
 } from '../src/physics.js';
+import {crossFromView} from '../src/cross.js';
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.resolve(__dirname,'../public');
@@ -83,12 +84,12 @@ function tick(){
         if(['playing','overtime'].includes(r.phase)){
           const scorer=stepPuck(r,1/TICK_RATE);
           if(scorer!==null)goal(r,scorer);
-          else updatePower(r,nowSim);
+          else if(r.settings.mode!=='cross')updatePower(r,nowSim);
         }
       }
     }
     for(const r of rooms.values()){
-      const every=['duo','teams'].includes(r.settings.mode)?3:2;
+      const every=['duo','cross','teams'].includes(r.settings.mode)?3:2;
       if(frame%every===0 && ready(r))announce(r);
     }
   }
@@ -100,7 +101,7 @@ function join(ws,msg){
   const token=typeof msg.token==='string'?msg.token:'';
   let seat=room.players.findIndex(p=>p?.token===token&&token.length===32);
   if(seat<0){
-    const n=room.settings.mode==='duo'?2:room.settings.mode==='teams'?4:1;
+    const n=['duo','cross'].includes(room.settings.mode)?2:room.settings.mode==='teams'?4:1;
     const team=msg.team==='blue'?0:msg.team==='pink'?1:-1;
     if(n>1&&team>=0){
       const start=team*n;
@@ -134,7 +135,7 @@ function message(ws,msg){
     // LAN shares the existing 2-goal physics: duel (2), duo (4), teams (8).
     // New three/four-GOAL arenas are preview only and deliberately not selectable.
     const requested=msg.settings?.mode;
-    const mode=['duel','duo','teams'].includes(requested)?requested:'duel';
+    const mode=['duel','duo','cross','teams'].includes(requested)?requested:'duel';
     const room=makeRoom(code,{...msg.settings,mode});
     rooms.set(code,room);join(ws,{code,name:msg.name,team:msg.team});return;
   }
@@ -146,8 +147,9 @@ function message(ws,msg){
     if(!Number.isSafeInteger(msg.seq)||msg.seq<0||msg.seq<=(room.paddles[seat].inputSeq||0))return;
     const pad=room.paddles[seat],b=boundsForPaddle(room,seat);
     const half=room.players.length/2,opposite=seat>=half;
-    pad.tx=clamp(opposite?W-msg.x:msg.x,b.minX,b.maxX);
-    pad.ty=clamp(opposite?H-msg.y:msg.y,b.minY,b.maxY);
+    const world=room.settings.mode==='cross'?crossFromView(seat,{x:msg.x,y:msg.y}):null;
+    pad.tx=clamp(world?world.x:opposite?W-msg.x:msg.x,b.minX,b.maxX);
+    pad.ty=clamp(world?world.y:opposite?H-msg.y:msg.y,b.minY,b.maxY);
     if(Number.isSafeInteger(msg.seq)&&msg.seq>=0&&msg.seq>(pad.inputSeq||0))pad.inputSeq=msg.seq;
   }else if(msg.type==='rematch'){
     if(room.phase!=='gameover')return;

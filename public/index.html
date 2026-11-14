@@ -12,7 +12,7 @@
   <title>Air Hockey DUO ARENA — Multijugador</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/styles.css?v=5.4.2-stability-offline.1" />
+  <link rel="stylesheet" href="/styles.css?v=5.5.0-cross-beta.1" />
 </head>
 <body>
   <div class="ambient ambient-one"></div>
@@ -106,7 +106,8 @@
         <select class="select-input mode-input" id="game-mode-select">
           <option value="duel" selected>🏒 Duelo · 1 vs. 1</option>
           <option value="bot">🤖 Contra el bot · jugar solo</option>
-          <option value="duo">👫 Equipos · 2 vs. 2</option>
+          <option value="cross">✚ Arena Cruz · 2 vs. 2 (BETA)</option>
+          <option value="duo">👫 Equipos · 2 vs. 2 clásico</option>
           <option value="teams">⚡ Equipos · 4 vs. 4</option>
           <option value="tournament" id="tournament-mode">🏆 Torneo eliminatorio</option>
         </select>
@@ -140,7 +141,7 @@
         <label class="power-setting"><input id="powers-enabled" type="checkbox" checked/><span>🎁 Poderes aleatorios <small>Turbo · Bola lenta · Mini paleta · Disparo cargado y más</small></span></label>
         <button id="create-btn" class="primary-button" type="button"><span class="button-icon">✦</span> CREAR SALA PRIVADA <span class="button-arrow">→</span></button>
         <div class="or-line"><span>O ÚNETE A UNA SALA</span></div>
-        <label class="input-label" for="join-team">EQUIPO AL UNIRTE (SOLO 2 VS 2 / 4 VS 4)</label>
+        <label class="input-label" for="join-team">EQUIPO AL UNIRTE (SOLO EQUIPOS (CRUZ / 2 VS 2 / 4 VS 4))</label>
         <select class="select-input join-team-input" id="join-team"><option value="auto">⚪ Cualquier equipo</option><option value="blue">🔵 Azul</option><option value="pink">🩷 Rosado</option></select>
         <div class="join-row"><input id="room-code" class="text-input code-input" type="text" maxlength="6" placeholder="CÓDIGO" aria-label="Código de sala" autocapitalize="characters" spellcheck="false" /><button id="join-btn" class="secondary-button" type="button">UNIRME <span>→</span></button></div>
         <div id="home-error" class="home-error" role="status"></div>
@@ -215,6 +216,6 @@
     </main>
     <footer class="footer"><span>MADE FOR TWO ♡</span><span class="footer-divider">·</span><span>DUO EDITION</span></footer>
   </div>
-  <script type="module" src="/game.js?v=5.4.2-stability-offline.1"></script>
+  <script type="module" src="/game.js?v=5.5.0-cross-beta.1"></script>
 </body>
 </html>

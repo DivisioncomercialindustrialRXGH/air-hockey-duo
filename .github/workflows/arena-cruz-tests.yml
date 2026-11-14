@@ -1,0 +1,22 @@
+name: Arena Cruz 5.5 beta — tests
+on:
+  push:
+    branches:
+      - feature/arena-cruz-5-5-beta
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check

@@ -130,6 +130,19 @@ export function samplePuckPose(frames,now,opts={}){
     if(target<=b.at){
       const elapsed=(target-a.at)/1000, duration=Math.max(.001,(b.at-a.at)/1000);
       const f=clamp(elapsed/duration,0,1);
+      // Server-confirmed paddle contact: render through its observed point.
+      // Otherwise a straight chord between two 20Hz packets can appear to
+      // cut through the paddle even when the authoritative hit was correct.
+      if(b.eventKind==='hit' && b.eventContact && Number.isFinite(b.eventContact.at)){
+        const impact=b.eventContact,when=(impact.at-a.at)/1000;
+        const straightX=a.x+(b.x-a.x)*when/duration;
+        const straightY=a.y+(b.y-a.y)*when/duration;
+        const deviation=Math.hypot(straightX-impact.x,straightY-impact.y);
+        if(when>.004 && when<duration-.004 && deviation>3 && deviation<160){
+          if(elapsed<=when){const u=elapsed/when;return {...a,at:target,x:a.x+(impact.x-a.x)*u,y:a.y+(impact.y-a.y)*u,r:a.r+(b.r-a.r)*f};}
+          const u=(elapsed-when)/(duration-when);return {...b,at:target,x:impact.x+(b.x-impact.x)*u,y:impact.y+(b.y-impact.y)*u,r:a.r+(b.r-a.r)*f};
+        }
+      }
       // For one high-energy bounce/hit within two authoritative snapshots,
       // the straight chord between endpoints may cut THROUGH the mallet.
       // Infer the contact time from pre/post velocities and the two observed
@@ -157,6 +170,15 @@ export function samplePuckPose(frames,now,opts={}){
   }
   const last=frames.at(-1);
   const dt=clamp((target-last.at)/1000,0,(opts.maxExtrapolateMs??105)/1000);
+  if(opts.board==='cross'){
+    // Never extrapolate a cross-rink snapshot into an empty corner. A short
+    // display hold is safer than inventing a collision or an accidental goal.
+    const R=last.r||16,xx=last.x+last.vx*dt,yy=last.y+last.vy*dt;
+    const inVertical=xx>=300+R&&xx<=600-R&&yy>=R&&yy<=900-R;
+    const inHorizontal=yy>=300+R&&yy<=600-R&&xx>=R&&xx<=900-R;
+    if(!inVertical&&!inHorizontal)return {...last,at:last.at+dt*1000};
+    return {...last,at:last.at+dt*1000,x:xx,y:yy};
+  }
   const r=last.r;
   // Visual prediction may bounce on walls, but NEVER invents paddle hits
   // or a goal. The next authoritative snapshot remains the only truth.
